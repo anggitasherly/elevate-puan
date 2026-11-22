@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import FormField from "@/components/auth/FormField";
+import LegalLink from "@/components/auth/LegalLink";
 import { signupCopy } from "@/lib/auth-content";
 
 function validate(v, agree) {
@@ -36,18 +37,49 @@ export default function SignupForm() {
   });
   const [agree, setAgree] = useState(false);
   const [errors, setErrors] = useState({});
+  const [submitting, setSubmitting] = useState(false);
+  const [serverError, setServerError] = useState("");
 
   const update = (field) => (e) =>
     setValues((prev) => ({ ...prev, [field]: e.target.value }));
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault();
+    if (submitting) return;
+
     const found = validate(values, agree);
     setErrors(found);
+    setServerError("");
     if (Object.keys(found).length > 0) return;
 
-    // Sementara belum ada backend. Nanti diganti Supabase Auth.
-    router.push("/assessment");
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fullName: values.fullName.trim(),
+          businessName: values.businessName.trim(),
+          email: values.email.trim(),
+          phone: values.phone.trim(),
+          password: values.password,
+          agree,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        setServerError(data.error ?? "Terjadi kesalahan. Coba lagi sebentar lagi.");
+        return;
+      }
+
+      router.push("/assessment");
+      router.refresh();
+    } catch {
+      setServerError("Koneksi bermasalah. Periksa internet lalu coba lagi.");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -121,15 +153,8 @@ export default function SignupForm() {
             htmlFor="agree"
             className="block text-xs font-normal leading-snug text-ink-muted"
           >
-            Saya setuju dengan{" "}
-            <a href="#" className="font-bold text-brand-deep">
-              Syarat &amp; Ketentuan
-            </a>{" "}
-            dan{" "}
-            <a href="#" className="font-bold text-brand-deep">
-              Kebijakan Privasi
-            </a>{" "}
-            ElevatePuan.
+            Saya setuju dengan <LegalLink doc="terms" /> dan{" "}
+            <LegalLink doc="privacy" /> ElevatePuan.
           </Label>
         </div>
         {errors.agree && (
@@ -139,11 +164,18 @@ export default function SignupForm() {
         )}
       </div>
 
+      {serverError && (
+        <p role="alert" className="text-xs font-medium leading-snug text-destructive">
+          {serverError}
+        </p>
+      )}
+
       <Button
         type="submit"
+        disabled={submitting}
         className="h-10 w-full rounded-full bg-linear-to-r from-cta-from to-cta-to text-[15px] font-bold shadow-lg shadow-cta-to/30 hover:opacity-90"
       >
-        {signupCopy.submit}
+        {submitting ? "Memproses..." : signupCopy.submit}
       </Button>
 
       <p className="text-center text-xs text-ink-muted">

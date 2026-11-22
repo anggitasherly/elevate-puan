@@ -3,7 +3,14 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import PageShell from "@/components/PageShell";
+import {
+  Clock3,
+  UsersRound,
+  MonitorSmartphone,
+  Sparkles,
+  CheckCircle2,
+  ArrowRight,
+} from "lucide-react";
 
 const STORAGE_KEY = "elevate_realistic_condition";
 
@@ -11,34 +18,20 @@ const questions = [
   {
     key: "availableTime",
     label: "Berapa banyak waktu yang bisa kamu luangkan tiap minggu?",
-    icon: "◷",
-    options: [
-      "<1 Jam/minggu",
-      "1–3 Jam/minggu",
-      "3–5 Jam/minggu",
-      ">5 Jam/minggu"
-    ],
+    icon: Clock3,
+    options: ["<5 jam", "5–10 jam", ">10 jam"],
   },
   {
     key: "teamSupport",
     label: "Tim / Pendukung",
-    icon: "♧",
-    options: [
-      "Saya Sendiri (Solo)",
-      "Dibantu Keluarga",
-      "Tim Kecil",
-      "Tim Lengkap",
-    ],
+    icon: UsersRound,
+    options: ["Saya Sendiri (Solo)", "Tim Kecil", "Tim Besar"],
   },
   {
     key: "digitalSkill",
     label: "Bagaimana kemampuan pemasaran digitalmu saat ini?",
-    icon: "▣",
-    options: [
-      "Pemula",
-      "Cukup Memahami",
-      "Mahir",
-    ],
+    icon: MonitorSmartphone,
+    options: ["Pemula", "Cukup Memahami", "Mahir"],
   },
 ];
 
@@ -55,23 +48,67 @@ export default function RealisticConditionPage() {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
 
+  const [saving, setSaving] = useState(false);
+
   useEffect(() => {
-    try {
-      const saved = sessionStorage.getItem(STORAGE_KEY);
+    let active = true;
 
-      if (saved) {
-        const parsed = JSON.parse(saved);
-
-        setAnswers({
-          ...initialAnswers,
-          ...parsed,
+    async function loadConstraints() {
+      try {
+        const response = await fetch("/api/constraints", {
+          method: "GET",
+          cache: "no-store",
         });
+
+        const result = await response.json();
+
+        if (!response.ok || !result.success) {
+          throw new Error(result.message || "Gagal memuat Constraints.");
+        }
+
+        const saved = result.constraints?.details?.realistic_condition;
+
+        const timeMap = {
+          under_5_hours: "<5 jam",
+          "5_to_10_hours": "5–10 jam",
+          over_10_hours: ">10 jam",
+        };
+
+        const teamMap = {
+          solo: "Saya Sendiri (Solo)",
+          small_team: "Tim Kecil",
+          large_team: "Tim Besar",
+        };
+
+        const skillMap = {
+          rendah: "Pemula",
+          sedang: "Cukup Memahami",
+          tinggi: "Mahir",
+        };
+
+        if (active && saved) {
+          setAnswers({
+            availableTime: timeMap[saved.available_time] || "",
+            teamSupport: teamMap[saved.team_support] || "",
+            digitalSkill: skillMap[saved.digital_skill] || "",
+          });
+        }
+      } catch (err) {
+        console.error("Gagal memuat Constraints:", err);
+
+        if (active) {
+          setError(err.message || "Gagal memuat kondisi usaha.");
+        }
+      } finally {
+        if (active) setReady(true);
       }
-    } catch (err) {
-      console.error("Gagal membaca data constraints:", err);
     }
 
-    setReady(true);
+    loadConstraints();
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   const answeredCount = questions.filter(
@@ -81,150 +118,174 @@ export default function RealisticConditionPage() {
   const isComplete = answeredCount === questions.length;
 
   function selectAnswer(key, value) {
-    const updated = {
-      ...answers,
+    setAnswers((current) => ({
+      ...current,
       [key]: value,
-    };
+    }));
 
-    setAnswers(updated);
     setError("");
-
-    try {
-      sessionStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify(updated)
-      );
-    } catch (err) {
-      console.error("Gagal menyimpan jawaban:", err);
-    }
   }
 
-  function handleContinue() {
-    if (!isComplete) {
-      setError(
-        "Lengkapi ketiga pertanyaan terlebih dahulu."
-      );
+  async function handleContinue() {
+    if (!isComplete || saving) {
+      if (!isComplete) {
+        setError("Lengkapi ketiga pertanyaan terlebih dahulu.");
+      }
       return;
     }
 
+    setSaving(true);
+    setError("");
+
     try {
-      sessionStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify(answers)
-      );
+      const response = await fetch("/api/constraints", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(answers),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success || !result.persisted) {
+        throw new Error(
+          result.message || "Jawaban belum berhasil disimpan."
+        );
+      }
 
       router.push("/opportunity-library");
     } catch (err) {
+      console.error("Gagal menyimpan Constraints:", err);
       setError(
-        "Jawaban belum berhasil disimpan. Silakan coba lagi."
+        err.message || "Gagal menyimpan jawaban. Silakan coba lagi."
       );
+    } finally {
+      setSaving(false);
     }
   }
-
   if (!ready) {
     return (
-      <PageShell>
-        <div className="mx-auto max-w-5xl p-8 text-center text-slate-500">
+      <div className="min-h-full space-y-6 text-ink">
+        <div className="p-8 text-center text-ink-muted">
           Memuat kondisi usahamu...
         </div>
-      </PageShell>
+      </div>
     );
   }
 
   return (
-    <PageShell>
-      <div className="relative mx-auto max-w-5xl px-3 py-10 sm:px-6">
-        {/* Dekorasi latar belakang */}
-        <div className="pointer-events-none absolute -left-16 top-36 h-64 w-64 rounded-full bg-amber-100/40 blur-3xl" />
-        <div className="pointer-events-none absolute -right-10 top-8 h-64 w-64 rounded-full bg-pink-100/50 blur-3xl" />
+    <div className="min-h-full space-y-6 text-ink">
+      {/*
+        DashboardLayout sudah memiliki padding dan breadcrumb.
 
-        <main className="relative rounded-[30px] border border-purple-100 bg-white p-6 shadow-[0_16px_55px_rgba(68,36,112,0.07)] sm:p-9">
-          {/* HEADER */}
-          <span className="inline-flex rounded-full bg-pink-100 px-4 py-2 text-xs font-bold text-pink-700">
-            KONDISI REALISTIS &amp; KENDALA USAHA
-          </span>
+        -mt-3 mengurangi jarak bawaan breadcrumb.
+        -mx-5 sm:-mx-7 menetralkan padding horizontal PageShell.
+        w-full membuat panel mengikuti lebar area konten.
+      */}
+      <div className="relative space-y-6 pb-6">
 
-          <h1 className="mt-7 max-w-3xl font-serif text-3xl font-bold leading-tight text-[#252044] sm:text-5xl">
-            Mari sesuaikan dengan realitas bisnismu.
-          </h1>
+        {/* DEKORASI LATAR BELAKANG */}
+        <div className="pointer-events-none absolute -left-10 top-32 h-64 w-64 rounded-full bg-amber-100/40 blur-3xl" />
+        <div className="pointer-events-none absolute -right-8 top-8 h-64 w-64 rounded-full bg-pink-100/50 blur-3xl" />
 
-          <p className="mt-4 text-sm leading-7 text-slate-500 sm:text-base">
-            Strategi bisnis harus mengikuti ritme hidupmu —
-            bukan sebaliknya.
-          </p>
+        {/* PANEL UTAMA */}
+        <section className="relative w-full rounded-3xl border border-pink-line bg-white p-5 shadow-sm md:p-6">
+
+          {/* JUDUL HALAMAN */}
+          <header className="mb-8">
+            <p className="mb-2 text-sm font-semibold text-pink-ink">
+              KONDISI USAHA
+            </p>
+
+            <h1 className="text-2xl font-bold tracking-tight text-ink-title md:text-3xl">
+              Kondisi Nyata Usahamu
+            </h1>
+
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-ink-muted">
+              Ceritakan waktu, tenaga, dan kemampuan yang kamu punya saat ini
+              agar rekomendasi eksperimen sesuai dengan kondisimu.
+            </p>
+          </header>
 
           {/* PERTANYAAN */}
-          <div className="mt-9 space-y-8">
-            {questions.map((question) => (
-              <section key={question.key}>
-                <h2 className="mb-4 flex items-center gap-3 text-sm font-bold text-[#252044] sm:text-base">
-                  <span className="text-xl text-pink-500">
-                    {question.icon}
-                  </span>
-                  {question.label}
-                </h2>
+          <div className="space-y-6">
+            {questions.map((question) => {
+              const QuestionIcon = question.icon;
 
-                <div
-                  className={`grid gap-3 ${
-                    question.options.length === 4
-                      ? "sm:grid-cols-4"
-                      : "sm:grid-cols-3"
-                  }`}
-                >
-                  {question.options.map((option) => {
-                    const selected =
-                      answers[question.key] === option;
+              return (
+                <section key={question.key}>
+                  <h2 className="mb-3 flex items-center gap-2.5 text-sm font-bold text-ink-title">
+                    <QuestionIcon
+                      size={18}
+                      strokeWidth={1.8}
+                      className="shrink-0 text-pink-ink"
+                      aria-hidden="true"
+                    />
+                    {question.label}
+                  </h2>
 
-                    return (
-                      <button
-                        key={option}
-                        type="button"
-                        aria-pressed={selected}
-                        onClick={() =>
-                          selectAnswer(
-                            question.key,
-                            option
-                          )
-                        }
-                        className={`min-h-12 rounded-2xl border px-3 py-3 text-center text-sm font-medium transition-all ${
-                          selected
-                            ? "border-purple-400 bg-purple-50 text-purple-800 shadow-[0_0_0_1px_rgba(168,85,247,0.2)]"
-                            : "border-slate-100 bg-slate-50 text-slate-600 hover:border-purple-200 hover:bg-purple-50/50"
-                        }`}
-                      >
-                        {option}
-                      </button>
-                    );
-                  })}
-                </div>
-              </section>
-            ))}
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    {question.options.map((option) => {
+                      const selected =
+                        answers[question.key] === option;
+
+                      return (
+                        <button
+                          key={option}
+                          type="button"
+                          aria-pressed={selected}
+                          onClick={() =>
+                            selectAnswer(question.key, option)
+                          }
+                          className={`min-h-10 rounded-xl border px-3 py-2 text-center text-[13px] font-medium transition-all ${
+                            selected
+                              ? "border-pink-ink bg-pink-pale font-semibold text-pink-ink shadow-sm"
+                              : "border-lav-line bg-white text-ink-muted hover:border-pink-line hover:bg-pink-pale/60"
+                          }`}
+                        >
+                          {option}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
+              );
+            })}
           </div>
 
           {/* PEMBATAS */}
           <div className="my-9 flex items-center gap-4">
             <div className="h-px flex-1 bg-purple-100" />
-            <span className="text-lg text-purple-300">
-              ✧
-            </span>
+            <Sparkles
+              size={19}
+              strokeWidth={1.6}
+              className="text-purple-300"
+              aria-hidden="true"
+            />
             <div className="h-px flex-1 bg-purple-100" />
           </div>
 
           {/* CONSTRAINT SNAPSHOT */}
-          <section className="rounded-[25px] bg-gradient-to-br from-pink-50 via-white to-fuchsia-50 p-5 sm:p-7">
+          <section className="rounded-3xl bg-gradient-to-br from-pink-50 via-white to-fuchsia-50 p-5 sm:p-7">
+
             <div className="mb-5 flex items-start gap-4">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-pink-100 text-2xl text-pink-600">
-                ✧
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-pink-100 text-pink-600">
+                <Sparkles
+                  size={24}
+                  strokeWidth={1.8}
+                  aria-hidden="true"
+                />
               </div>
 
               <div>
-                <h2 className="font-serif text-2xl font-bold text-[#252044]">
+                <h2 className="text-2xl font-bold text-ink-title">
                   Constraint Snapshot
                 </h2>
 
-                <p className="mt-1 text-sm text-slate-500">
-                  Ringkasan kondisi dan keterbatasan
-                  utama bisnismu saat ini.
+                <p className="mt-1 text-sm text-ink-muted">
+                  Ringkasan kondisi dan keterbatasan utama
+                  bisnismu saat ini.
                 </p>
               </div>
             </div>
@@ -232,9 +293,9 @@ export default function RealisticConditionPage() {
             <div className="rounded-2xl border border-dashed border-purple-200 bg-white/80 p-5">
               {!isComplete ? (
                 <div className="py-4 text-center">
-                  <p className="text-sm text-slate-500">
-                    Jawab seluruh pertanyaan untuk
-                    menampilkan Constraint Snapshot.
+                  <p className="text-sm text-ink-muted">
+                    Jawab seluruh pertanyaan untuk menampilkan
+                    Constraint Snapshot.
                   </p>
 
                   <p className="mt-2 text-sm font-bold text-purple-700">
@@ -245,27 +306,31 @@ export default function RealisticConditionPage() {
                 <>
                   <div className="grid gap-5 sm:grid-cols-3">
                     <SnapshotItem
-                      icon="◷"
+                      icon={Clock3}
                       label="Waktu Tersedia"
                       value={answers.availableTime}
                     />
 
                     <SnapshotItem
-                      icon="♧"
+                      icon={UsersRound}
                       label="Dukungan Tim"
                       value={answers.teamSupport}
                     />
 
                     <SnapshotItem
-                      icon="▣"
+                      icon={MonitorSmartphone}
                       label="Kemampuan Digital"
                       value={answers.digitalSkill}
                     />
                   </div>
 
                   <div className="mt-6 flex justify-center">
-                    <span className="rounded-full bg-emerald-50 px-4 py-2 text-xs font-bold text-emerald-700">
-                      ✓ 3 dari 3 pertanyaan terisi
+                    <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-4 py-2 text-xs font-bold text-emerald-700">
+                      <CheckCircle2
+                        size={15}
+                        aria-hidden="true"
+                      />
+                      3 dari 3 pertanyaan terisi
                     </span>
                   </div>
                 </>
@@ -273,6 +338,7 @@ export default function RealisticConditionPage() {
             </div>
           </section>
 
+          {/* PESAN ERROR */}
           {error && (
             <p
               role="alert"
@@ -287,31 +353,36 @@ export default function RealisticConditionPage() {
             <button
               type="button"
               onClick={handleContinue}
-              disabled={!isComplete}
-              className="w-full max-w-2xl rounded-full bg-gradient-to-r from-purple-400 via-fuchsia-400 to-pink-400 px-6 py-4 text-sm font-bold text-white shadow-lg shadow-purple-100 transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50 sm:text-base"
+              disabled={!isComplete || saving}
+              className="flex w-full max-w-2xl items-center justify-center gap-2 rounded-full bg-gradient-to-r from-purple-400 via-fuchsia-400 to-pink-400 px-6 py-4 text-sm font-bold text-white shadow-lg shadow-purple-100 transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50 sm:text-base"
             >
-              Simpan dan Lanjut ke Rekomendasi Strategi AI →
+              Simpan dan Lanjut ke Rekomendasi Strategi AI
+              <ArrowRight
+                size={18}
+                aria-hidden="true"
+              />
             </button>
           </div>
-        </main>
 
-        <p className="mt-16 text-center font-serif text-base italic text-purple-700">
-          Better Decisions, Bigger Dreams ✦
-        </p>
+        </section>
       </div>
-    </PageShell>
+    </div>
   );
 }
 
-function SnapshotItem({ icon, label, value }) {
+function SnapshotItem({ icon: Icon, label, value }) {
   return (
     <div className="flex items-center gap-3">
-      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-pink-50 text-xl text-pink-500">
-        {icon}
+      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-pink-50 text-pink-500">
+        <Icon
+          size={21}
+          strokeWidth={1.8}
+          aria-hidden="true"
+        />
       </span>
 
       <div>
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-ink-muted">
           {label}
         </p>
 

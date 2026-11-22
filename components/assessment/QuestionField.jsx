@@ -2,6 +2,7 @@
 
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import VoiceTextarea from "@/components/assessment/VoiceTextarea";
 import {
   Select,
   SelectContent,
@@ -45,6 +46,20 @@ export default function QuestionField({ question, value, onChange, error }) {
               ))}
             </SelectContent>
           </Select>
+        </>
+      ) : type === "text" ? (
+        <>
+          <Label htmlFor={id} className={cn("mb-1.5 block", labelClass)}>
+            {label}
+            <Asterisk />
+          </Label>
+          <VoiceTextarea
+            id={id}
+            value={value ?? ""}
+            onChange={onChange}
+            placeholder={question.placeholder}
+            invalid={Boolean(error)}
+          />
         </>
       ) : (
         <div role="group" aria-labelledby={`${id}-label`}>

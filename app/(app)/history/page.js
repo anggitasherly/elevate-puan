@@ -1,90 +1,153 @@
+
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Search,
   ChevronDown,
   FlaskConical,
   CircleCheck,
   Clock3,
-  PenLine,
 } from "lucide-react";
 
-import DashboardLayout from "@/components/layout/DashboardLayout";
 import ExperimentRow, {
   GRID_COLS,
 } from "@/components/experiment-history/ExperimentRow";
-import { mockExperiments } from "@/lib/mockExperiments";
-import BlobBackground from "@/components/layout/BlobBackground";
 
 export default function ExperimentHistoryPage() {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("all");
   const [category, setCategory] = useState("all");
 
-  const experiments = mockExperiments;
+  // Data eksperimen dari API.
+  const [experiments, setExperiments] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [retry, setRetry] = useState(0);
 
-  const counts = {
-    all: experiments.length,
-    completed: experiments.filter((e) => e.status === "completed").length,
-    ongoing: experiments.filter((e) => e.status === "ongoing").length,
-    draft: experiments.filter((e) => e.status === "draft").length,
-  };
+  // 1. Mengambil riwayat eksperimen dari API.
+  useEffect(() => {
+    let isMounted = true;
 
-  const categories = [
-    ...new Set(experiments.map((e) => e.category)),
-  ];
+    async function fetchHistory() {
+      try {
+        setLoading(true);
+        setError("");
 
+        // Login dibaca server dari cookie, jadi browser tidak perlu mengirim token.
+        const response = await fetch("/api/experiments/history", {
+          method: "GET",
+          cache: "no-store",
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            result.error || "Gagal mengambil riwayat eksperimen."
+          );
+        }
+
+        if (isMounted) {
+          setExperiments(
+            Array.isArray(result.data?.experiments)
+              ? result.data.experiments
+              : []
+          );
+        }
+      } catch (err) {
+        console.error("History fetch error:", err);
+
+        if (isMounted) {
+          setError(
+            err.message || "Terjadi kesalahan saat mengambil data eksperimen."
+          );
+          setExperiments([]);
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    }
+
+    fetchHistory();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [retry]);
+
+  // 2. Menghitung ringkasan berdasarkan data API.
+  const counts = useMemo(
+    () => ({
+      all: experiments.length,
+      completed: experiments.filter((e) => e.status === "completed").length,
+      ongoing: experiments.filter((e) => e.status === "ongoing").length,
+    }),
+    [experiments]
+  );
+
+  // 3. Mengambil kategori dari problem_addressed melalui API.
+  const categories = useMemo(
+    () => [
+      ...new Set(
+        experiments
+          .map((e) => e.category || "Belum dikategorikan")
+          .filter(Boolean)
+      ),
+    ],
+    [experiments]
+  );
+
+  // 4. Filter pencarian, status, dan kategori.
   const filtered = useMemo(() => {
     return experiments.filter((e) => {
-      const matchQuery = e.name
-        .toLowerCase()
-        .includes(query.toLowerCase());
+      const experimentName = (e.name || e.title || "").toLowerCase();
+
+      const matchQuery = experimentName.includes(query.toLowerCase());
 
       const matchStatus =
         status === "all" || e.status === status;
 
+      const experimentCategory =
+        e.category || "Belum dikategorikan";
+
       const matchCategory =
-        category === "all" || e.category === category;
+        category === "all" || experimentCategory === category;
 
       return matchQuery && matchStatus && matchCategory;
     });
   }, [experiments, query, status, category]);
 
+  // 5. Summary cards.
   const summary = [
     {
       key: "all",
       label: "Total Eksperimen",
-      hint: "Semua yang pernah kamu buat",
+      hint: "Semua eksperimen yang pernah kamu buat",
       Icon: FlaskConical,
-      tint: "bg-brand-soft text-brand",
+      tint: "bg-pink-pale text-pink-ink",
     },
     {
       key: "completed",
       label: "Selesai",
-      hint: "Sudah dievaluasi atau selesai",
+      hint: "Eksperimen yang sudah selesai",
       Icon: CircleCheck,
-      tint: "bg-mint-soft text-emerald-700",
+      tint: "bg-pink-pale text-pink-ink",
     },
     {
       key: "ongoing",
       label: "Sedang Berjalan",
-      hint: "Masih berlangsung",
+      hint: "Eksperimen yang masih berlangsung",
       Icon: Clock3,
-      tint: "bg-sun-soft text-amber-700",
-    },
-    {
-      key: "draft",
-      label: "Draft",
-      hint: "Belum dimulai",
-      Icon: PenLine,
-      tint: "bg-lav-pale text-ink-muted",
+      tint: "bg-pink-pale text-pink-ink",
     },
   ];
 
   return (
     <>
-    <BlobBackground />
+
       <div className="min-h-full space-y-6 text-ink">
         {/* Page heading */}
         <header className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
@@ -105,7 +168,7 @@ export default function ExperimentHistoryPage() {
         </header>
 
         {/* Summary cards */}
-        <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {summary.map(({ key, label, hint, Icon, tint }) => {
             const active = status === key;
 
@@ -115,10 +178,10 @@ export default function ExperimentHistoryPage() {
                 type="button"
                 onClick={() => setStatus(key)}
                 aria-pressed={active}
-                className={`rounded-2xl border p-4 text-left transition duration-200 hover:-translate-y-0.5 hover:shadow-md ${
+                className={`min-h-[164px] rounded-2xl border p-5 text-left transition duration-200 hover:-translate-y-0.5 hover:shadow-md ${
                   active
-                    ? "border-brand bg-brand-soft/60 shadow-sm"
-                    : "border-border bg-white/90 hover:border-brand-light"
+                    ? "border-pink-line bg-gradient-to-br from-pink-pale via-white to-blush-soft/50 shadow-sm"
+                    : "border-pink-line bg-white hover:border-blush"
                 }`}
               >
                 <span
@@ -144,11 +207,12 @@ export default function ExperimentHistoryPage() {
         </section>
 
         {/* Experiment list */}
-        <section className="rounded-3xl border border-border bg-white/90 p-4 shadow-sm md:p-6">
+        <section className="rounded-3xl border border-pink-line bg-white p-5 shadow-sm md:p-6">
           <div>
             <h2 className="text-lg font-bold text-ink-title">
               Daftar Eksperimen
             </h2>
+
             <p className="mt-1 text-sm text-ink-muted">
               Cari eksperimen atau saring berdasarkan status dan kategori.
             </p>
@@ -156,7 +220,7 @@ export default function ExperimentHistoryPage() {
 
           {/* Search and filters */}
           <div className="mt-5 flex flex-col gap-3 lg:flex-row">
-            <label className="flex min-h-11 flex-1 items-center gap-2 rounded-xl border border-border bg-white px-3 transition focus-within:border-brand focus-within:ring-2 focus-within:ring-brand/10">
+            <label className="flex min-h-11 flex-1 items-center gap-2 rounded-xl border border-pink-line bg-white px-3 transition focus-within:border-pink-ink focus-within:ring-2 focus-within:ring-pink-ink/10">
               <Search size={17} className="shrink-0 text-ink-muted" />
 
               <input
@@ -168,17 +232,18 @@ export default function ExperimentHistoryPage() {
               />
             </label>
 
+            {/* Status filter */}
             <div className="relative">
               <select
                 value={status}
                 onChange={(e) => setStatus(e.target.value)}
                 aria-label="Filter status"
-                className="h-11 w-full appearance-none rounded-xl border border-border bg-white pl-3 pr-10 text-sm text-ink outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10 lg:w-48"
+                className="h-11 w-full appearance-none rounded-xl border border-pink-line bg-white pl-3 pr-10 text-sm text-ink outline-none transition focus:border-pink-ink focus:ring-2 focus:ring-pink-ink/10 lg:w-48"
               >
                 <option value="all">Semua Status</option>
                 <option value="completed">Selesai</option>
                 <option value="ongoing">Berjalan</option>
-                <option value="draft">Draft</option>
+                <option value="stopped">Dihentikan</option>
               </select>
 
               <ChevronDown
@@ -187,6 +252,7 @@ export default function ExperimentHistoryPage() {
               />
             </div>
 
+            {/* Category filter */}
             <div className="relative">
               <select
                 value={category}
@@ -216,26 +282,54 @@ export default function ExperimentHistoryPage() {
               Riwayat Eksperimen
             </h3>
 
-            <span className="rounded-full bg-brand-soft px-3 py-1 text-xs font-medium text-brand">
+            <span className="rounded-full bg-pink-pale px-3 py-1 text-xs font-semibold text-pink-ink">
               {filtered.length} dari {experiments.length} eksperimen
             </span>
           </div>
 
+          {/* Table columns */}
           <div
-            className={`hidden rounded-xl border border-row-line bg-lav-pale/70 px-4 py-3 text-xs font-semibold text-ink-title md:grid md:gap-4 ${GRID_COLS}`}
+            className={`hidden rounded-xl border border-pink-line bg-pink-pale px-4 py-3 text-xs font-semibold text-ink-title md:grid md:items-center md:gap-4 ${GRID_COLS}`}
           >
-            <span>Nama Eksperimen</span>
-            <span>Kategori</span>
-            <span>Periode</span>
-            <span>Status</span>
-            <span>Evaluasi</span>
-            <span>Aksi</span>
+            <span className="text-center">Nama Eksperimen</span>
+            <span className="text-center">Kategori</span>
+            <span className="text-center">Periode</span>
+            <span className="text-center">Status</span>
+            <span className="text-center">Evaluasi</span>
+            <span aria-hidden="true" />
           </div>
 
-          {/* Empty state or experiment rows */}
-          {filtered.length === 0 ? (
+          {/* Loading state */}
+          {loading ? (
+            <div className="flex flex-col items-center justify-center py-14">
+              <span className="h-8 w-8 animate-spin rounded-full border-[3px] border-brand/20 border-t-brand" />
+              <p className="mt-4 text-sm text-ink-muted">
+                Mengambil riwayat eksperimen...
+              </p>
+            </div>
+          ) : error ? (
+            /* Error state */
+            <div className="rounded-2xl border border-red-200 bg-red-50 px-5 py-10 text-center">
+              <p className="font-semibold text-red-700">
+                Gagal memuat riwayat eksperimen
+              </p>
+
+              <p className="mt-2 text-sm text-red-600">
+                {error}
+              </p>
+
+              <button
+                type="button"
+                onClick={() => setRetry((prev) => prev + 1)}
+                className="mt-4 rounded-xl bg-pink-ink px-4 py-2 text-sm font-semibold text-white transition hover:bg-pink-ink/90"
+              >
+                Coba Lagi
+              </button>
+            </div>
+          ) : filtered.length === 0 ? (
+            /* Empty state */
             <div className="rounded-2xl border border-dashed border-border py-12 text-center">
-              <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-soft text-brand">
+              <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-pink-pale text-pink-ink">
                 <FlaskConical size={23} />
               </span>
 
@@ -259,13 +353,14 @@ export default function ExperimentHistoryPage() {
                     setStatus("all");
                     setCategory("all");
                   }}
-                  className="mt-4 rounded-xl bg-brand px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
+                  className="mt-4 rounded-xl bg-pink-ink px-4 py-2 text-sm font-semibold text-white transition hover:bg-pink-ink/90"
                 >
                   Reset Filter
                 </button>
               )}
             </div>
           ) : (
+            /* Experiment rows */
             <div className="mt-3 flex flex-col gap-3 md:mt-0 md:gap-0">
               {filtered.map((exp) => (
                 <ExperimentRow key={exp.id} experiment={exp} />
@@ -304,6 +399,3 @@ export default function ExperimentHistoryPage() {
     </>
   );
 }
-
-
-
