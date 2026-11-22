@@ -1,0 +1,3 @@
+
+[tool.vercel]
+entrypoint = "src.recommendation.app.main:app"
