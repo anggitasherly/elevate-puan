@@ -65,43 +65,24 @@ function SparkleDecor() {
 
 export default function DashboardLayout({ children, userName = "" }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
-  const pathname = usePathname();
-<<<<<<< HEAD
-  const [previousPathname, setPreviousPathname] = useState(pathname);
+const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+const pathname = usePathname();
+const router = useRouter();
 
-  if (pathname !== previousPathname) {
-    setPreviousPathname(pathname);
-    setMobileMenuOpen(false);
-    setProfileMenuOpen(false);
-  }
-=======
-  const router = useRouter();
->>>>>>> origin/master
+async function handleSignOut() {
+  setProfileMenuOpen(false);
+  await signOut(router);
+}
 
-  // Nama pengguna yang login (dikirim dari app/(app)/layout.js).
-  // Kalau kosong, tampil "Pengguna" supaya header tidak kosong.
-  const displayName = userName.trim() || "Pengguna";
-  const initial = displayName.charAt(0).toUpperCase();
+const pageTitle = getPageTitle(pathname);
 
-<<<<<<< HEAD
-=======
-  async function handleSignOut() {
-    setProfileMenuOpen(false);
-    await signOut(router);
-  }
+const [lastPathname, setLastPathname] = useState(pathname);
 
-  const pageTitle = getPageTitle(pathname);
-
-  const [lastPathname, setLastPathname] = useState(pathname);
-
-  if (lastPathname !== pathname) {
-    setLastPathname(pathname);
-    setMobileMenuOpen(false);
-    setProfileMenuOpen(false);
-  }
-
->>>>>>> origin/master
+if (pathname !== lastPathname) {
+  setLastPathname(pathname);
+  setMobileMenuOpen(false);
+  setProfileMenuOpen(false);
+}
   return (
     <div className="min-h-screen bg-transparent text-ink md:flex">
       {/* Overlay mobile */}
