@@ -18,43 +18,43 @@ export default function InsightsPage() {
 
   // Fungsi ini hanya mengambil data. Tidak mengubah React state.
   const requestInsights = useCallback(async (signal) => {
-    // Ambil session user.
-    const {
-      data: { session },
-      error: sessionError,
-    } = await supabase.auth.getSession();
+  // Ambil session user dari Supabase.
+  const {
+    data: { session },
+    error: sessionError,
+  } = await supabase.auth.getSession();
 
-    if (sessionError) throw sessionError;
+  if (sessionError) throw sessionError;
 
-    if (signal?.aborted) {
-      throw new DOMException("Request dibatalkan.", "AbortError");
-    }
+  if (signal?.aborted) {
+    throw new DOMException("Request dibatalkan.", "AbortError");
+  }
 
-    // Pastikan user sudah login.
-    if (!session?.access_token) {
-      throw new Error("Sesi login tidak ditemukan. Silakan login kembali.");
-    }
+  // Pastikan user sudah login.
+  if (!session?.access_token) {
+    throw new Error("Sesi login tidak ditemukan. Silakan login kembali.");
+  }
 
-    // Ambil data dari Route Handler API.
-    const response = await fetch("/api/growth-insights", {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${session.access_token}`,
-      },
-      cache: "no-store",
-      signal,
-    });
+  // Kirim token ke Route Handler API.
+  const response = await fetch("/api/growth-insights", {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    cache: "no-store",
+    signal,
+  });
 
-    const result = await response.json();
+  const result = await response.json();
 
-    if (!response.ok || !result.success) {
-      throw new Error(
-        result.message || "Gagal mengambil data Growth Insights."
-      );
-    }
+  if (!response.ok || !result.success) {
+    throw new Error(
+      result.message || "Gagal mengambil data Growth Insights."
+    );
+  }
 
-    return result.data;
-  }, []);
+  return result.data;
+}, []);
 
   // Mengambil data ketika halaman pertama kali dibuka.
   useEffect(() => {

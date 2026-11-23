@@ -20,18 +20,45 @@ export default function LoginForm() {
   const router = useRouter();
   const [values, setValues] = useState({ email: "", password: "" });
   const [errors, setErrors] = useState({});
+  const [submitting, setSubmitting] = useState(false);
+  const [serverError, setServerError] = useState("");
 
   const update = (field) => (e) =>
     setValues((prev) => ({ ...prev, [field]: e.target.value }));
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault();
+    if (submitting) return;
+
     const found = validate(values);
     setErrors(found);
+    setServerError("");
     if (Object.keys(found).length > 0) return;
 
-    // Sementara belum ada backend. Nanti diganti Supabase Auth.
-    router.push("/home");
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: values.email.trim(),
+          password: values.password,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        setServerError(data.error ?? "Terjadi kesalahan. Coba lagi sebentar lagi.");
+        return;
+      }
+
+      router.push("/home");
+      router.refresh();
+    } catch {
+      setServerError("Koneksi bermasalah. Periksa internet lalu coba lagi.");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -59,11 +86,18 @@ export default function LoginForm() {
         error={errors.password}
       />
 
+      {serverError && (
+        <p role="alert" className="text-xs font-medium leading-snug text-destructive">
+          {serverError}
+        </p>
+      )}
+
       <Button
         type="submit"
+        disabled={submitting}
         className="h-10 w-full rounded-full bg-linear-to-r from-cta-from to-cta-to text-[15px] font-bold shadow-lg shadow-cta-to/30 hover:opacity-90"
       >
-        {loginCopy.submit}
+        {submitting ? "Memproses..." : loginCopy.submit}
       </Button>
 
       <p className="text-center text-xs text-ink-muted">

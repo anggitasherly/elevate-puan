@@ -21,7 +21,7 @@ export default function StoryBox({ value, onChange }) {
   }, [value]);
 
   function appendText(text) {
-    const base = valueRef.current;
+    const base = valueRef.current ?? "";
     const separator = base && !/\s$/.test(base) ? " " : "";
     const next = base + separator + text;
     valueRef.current = next;

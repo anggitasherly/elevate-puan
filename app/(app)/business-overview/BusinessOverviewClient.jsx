@@ -1,58 +1,82 @@
-
 "use client";
 
 import Link from "next/link";
-import PageShell from "@/components/PageShell";
-import OverviewHero from "@/components/business-overview/OverviewHero";
 import OverviewMetrics from "@/components/business-overview/OverviewMetrics";
 import OverviewInsight from "@/components/business-overview/OverviewInsight";
 
-export default function BusinessOverviewClient() {
+import {
+  adaptBusinessDiagnosis,
+  buildOverviewMetrics,
+} from "@/lib/business-overview-adapter";
+
+export default function BusinessOverviewClient({
+  rawDiagnosis = null,
+  assessmentId = null,
+}) {
+  // Hasil diagnosis diterima dari Server Component melalui rawDiagnosis.
+  // Jangan menggunakan data simulasi sebagai hasil pengguna.
+  const diagnosis = rawDiagnosis
+    ? adaptBusinessDiagnosis(rawDiagnosis)
+    : null;
+
+  const metrics = buildOverviewMetrics(diagnosis);
+
   return (
-    <PageShell>
-      <div className="relative overflow-hidden rounded-[30px] border border-purple-100 bg-white/95 p-5 shadow-[0_12px_45px_rgba(89,62,120,0.07)] sm:p-9">
-        <OverviewHero />
+    <div className="min-h-full space-y-6 text-ink">
+      {/* Page heading, selaras dengan Experiment History dan Growth Insights */}
+      <header>
+        <p className="mb-2 text-sm font-semibold text-pink-ink">
+          GAMBARAN BISNIS
+        </p>
 
-        {/* Narasi diagnosis menjadi fokus utama */}
-        <section className="mt-10">
-          <OverviewInsight />
-        </section>
+        <h1 className="text-2xl font-bold tracking-tight text-ink-title md:text-3xl">
+          Business Overview
+        </h1>
 
-        {/* Empat kartu ringkasan kondisi bisnis */}
-        <section className="mt-12">
-          <h2 className="mb-6 font-serif text-2xl font-bold text-[#242044] sm:text-3xl">
-            Ringkasan Kondisi Bisnismu
-          </h2>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-ink-muted">
+          Lihat ringkasan kondisi bisnismu berdasarkan hasil diagnosis awal.
+        </p>
+      </header>
 
-          <OverviewMetrics />
-        </section>
+      {/* Narasi diagnosis menjadi fokus utama */}
+      <OverviewInsight diagnosis={diagnosis} assessmentId={assessmentId} />
 
-        {/* Navigasi */}
-        <nav
-          aria-label="Navigasi Business Overview"
-          className="mt-16 flex flex-col gap-5 border-t border-purple-100 pt-8 sm:flex-row sm:items-center sm:justify-between"
+      {/* Ringkasan kondisi bisnis */}
+      <section className="rounded-3xl border border-pink-line bg-white p-5 shadow-sm md:p-6">
+        <h2 className="text-lg font-bold text-ink-title">
+          Sekilas tentang Kondisi Usahamu
+        </h2>
+
+        <div className="mt-5">
+          <OverviewMetrics metrics={metrics} />
+        </div>
+      </section>
+
+      {/* Navigasi */}
+      <nav
+        aria-label="Navigasi Business Overview"
+        className="flex flex-col gap-4 border-t border-pink-line pt-6 sm:flex-row sm:items-center sm:justify-between"
+      >
+        <Link
+          href="/assessment"
+          className="inline-flex items-center gap-2 text-sm font-semibold text-brand transition hover:text-brand-deep"
         >
-          <Link
-            href="/diagnosis"
-            className="inline-flex items-center gap-2 text-sm font-semibold text-purple-700 transition hover:text-purple-900"
-          >
-            <span aria-hidden="true" className="text-xl">
-              ←
-            </span>
-            Kembali ke Halaman Diagnosis
-          </Link>
+          <span aria-hidden="true" className="text-xl">
+            ←
+          </span>
+          Kembali ke Assessment
+        </Link>
 
-          <Link
-            href="/financial-readiness"
-            className="inline-flex items-center justify-center gap-3 rounded-xl bg-gradient-to-r from-pink-400 to-purple-500 px-6 py-3.5 text-center text-sm font-semibold text-white shadow-[0_5px_15px_rgba(190,100,210,0.18)] transition hover:from-pink-500 hover:to-purple-600"
-          >
-            Lanjut Ke Financial Readiness 
-            <span aria-hidden="true" className="text-xl">
-              →
-            </span>
-          </Link>
-        </nav>
-      </div>
-    </PageShell>
+        <Link
+          href="/financial-readiness"
+          className="inline-flex h-11 items-center justify-center gap-2 rounded-full bg-linear-to-r from-cta-from to-cta-to px-6 text-[15px] font-bold text-white shadow-lg shadow-cta-to/30 transition hover:opacity-90"
+        >
+          Lanjut ke Kesiapan Finansial
+          <span aria-hidden="true" className="text-xl">
+            →
+          </span>
+        </Link>
+      </nav>
+    </div>
   );
 }

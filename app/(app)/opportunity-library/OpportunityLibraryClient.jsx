@@ -1,136 +1,16 @@
-
 "use client";
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
-import PageShell from "@/components/PageShell";
 import OpportunityIcon from "@/components/opportunity-library/OpportunityIcon";
-
-// =====================================================
-// DATA CONTOH HASIL PIPELINE GOOGLE COLAB
-// Persona: Kak Dinda - Usaha Skincare
-// =====================================================
+import {
+  toStrategy,
+  buildNarrative,
+} from "@/lib/recommendation/strategy-adapter";
 
 const EXPERIMENT_ROUTE = "/experiments/rancangan_experimen";
 const EXPERIMENT_STORAGE_KEY =
   "elevate_selected_experiment_strategy";
-
-const mainStrategy = {
-  id: "pb-027",
-  rank: 1,
-  title: "Flash Sale Terbatas Durasi 3 Jam di Media Sosial",
-  description:
-    "Mencoba promo terbatas selama tiga jam untuk mendorong calon pembeli mengambil keputusan pembelian.",
-  icon: "instagram",
-  reasons: [
-    "Strategi ini ditujukan untuk mengatasi masalah penjualan yang stagnan.",
-    "Estimasi biaya Rp0, masih sesuai dengan anggaran aman Kak Dinda sebesar Rp300.000.",
-    "Strategi memanfaatkan media sosial dan produk yang sudah dimiliki.",
-  ],
-  duration: "3 hari",
-  cost: "Rp0",
-  target: "Rekap omzet selama 3 jam Flash Sale",
-  final_score: 0.523,
- day_by_day_plan: [
-  '\nPilih produk "jagoan"',
-  '\nSiapkan amunisi visual',
-  '\nMulai beri "bocoran" (H-1)',
-],
-};
-
-const alternatives = [
-  {
-    id: "pb-010",
-    rank: 2,
-    title: "Eksperimen Headline Promosi Fokus Solusi",
-    description:
-      "Menguji pesan promosi yang menonjolkan solusi atas masalah pelanggan.",
-    icon: "instagram",
-    whyRanked:
-      "Strategi ini menjadi alternatif #2 karena masih sejalan dengan tujuan utama, yaitu membantu calon pembeli lebih yakin untuk membeli. Bedanya, strategi ini menggunakan pesan promosi yang menjelaskan manfaat produk, bukan promo dengan batas waktu. Skornya 0.510, sedikit di bawah Flash Sale (0.523), sehingga Flash Sale tetap menjadi rekomendasi utama untuk mendorong keputusan pembelian lebih cepat.",
-    reasons: [
-      "Pendekatan promosi berfokus pada kebutuhan dan masalah pelanggan.",
-      "Memungkinkan perbandingan respons terhadap gaya promosi yang berbeda.",
-      "Dapat diuji menggunakan saluran pemasaran yang sudah tersedia.",
-    ],
-    duration: "7 hari",
-    cost: "Rp0",
-    target: "Perbandingan respons promosi",
-    final_score: 0.510,
-    day_by_day_plan: [
-      "Identifikasi 1 masalah utama konsumen (Misal: 'Bingung cari hadiah ultah cepat').",
-      "Buat konten dengan judul solusi (Misal: 'Solusi Kado Cantik Siap Kirim Hari Ini').",
-      "Posting konten tersebut di semua saluran jualan.",
-      "Siapkan template jawaban balasan yang senada dengan judul solusi.",
-      "Coba judul solusi kedua untuk segmen berbeda.",
-      "Bandingkan jumlah respons antara gaya jualan biasa vs gaya solusi.",
-      "Tetapkan gaya penulisan terbaik untuk promosi rutin.",
-    ],
-  },
-  {
-    id: "pb-023",
-    rank: 3,
-    title: "Posting Rutin Konten Edukasi / Tips Bebas Jualan",
-    description:
-      "Membangun interaksi melalui konten edukasi yang bermanfaat bagi pelanggan.",
-    icon: "instagram",
-    whyRanked:
-      "Strategi ini menjadi alternatif #3 karena berfokus membangun kepercayaan dan kedekatan dengan pelanggan dalam jangka lebih panjang. Strategi ini dapat mendukung Flash Sale dan promosi fokus solusi, tetapi tidak secara langsung mendorong pembelian secepat dua strategi sebelumnya. Dalam hasil pipeline Colab, skornya 0.463, di bawah strategi #1 (0.523) dan #2 (0.510).",
-    reasons: [
-      "Membantu audiens mengenal manfaat produk melalui konten edukasi.",
-      "Konten sederhana dapat dibuat menggunakan Canva.",
-      "Hasilnya dapat dipantau melalui interaksi dan statistik konten.",
-    ],
-    duration: "7 hari",
-    cost: "Rp0",
-    target: "Jumlah simpanan dan bagikan konten",
-    final_score: 0.463,
-    day_by_day_plan: [
-      "Cari 3 topik tips terkait produk (Misal: 'Cara Menyimpan Kue Agar Tahan 1 Bulan').",
-      "Buat desain tulisan gambar slide sederhana menggunakan Canva.",
-      "Post Tips #1 dan ajak pengikut menyimpan postingan.",
-      "Tanggapi setiap komentar atau pertanyaan pembaca.",
-      "Post Tips #2 dengan gaya tanya jawab interaktif.",
-      "Posting ulang konten tips tersebut ke WA Story.",
-      "Rekap statistik jumlah simpanan (saves) dan bagikan (shares).",
-    ],
-  },
-];
-
-// =====================================================
-// NARASI ASLI OUTPUT GEMINI DARI NOTEBOOK COLAB
-// Tidak mengubah kata-kata narasi asli.
-// =====================================================
-
-const exampleNarrative = `Halo, Kak Dinda! Apa kabarnya bisnis skincare-nya hari ini? Semoga tetap semangat ya, Kak.
-
-Aku paham banget rasanya kalau sudah rajin posting, bikin konten, bahkan sampai coba iklan, tapi penjualannya rasanya "segitu-segitu saja". Apalagi kalau ketemu calon pembeli yang cuma DM tanya harga lalu menghilang tanpa jejak—rasanya gemas sekaligus lelah ya, Kak? Tapi Kak Dinda jangan berkecil hati dulu, karena tantangan ini wajar banget dialami banyak pemilik usaha. Hal ini biasanya terjadi karena calon pembeli Kakak sebenarnya tertarik, tapi mereka belum merasa "butuh sekarang juga".
-
-Nah, untuk mengatasi itu, aku sudah siapkan satu strategi khusus buat Kak Dinda yang disebut **"Grebek Flash Sale 3 Jam"**. Strategi ini aku pilihkan supaya orang-orang yang tadinya cuma hobi tanya-tanya, jadi merasa harus segera *checkout* karena takut kehabisan.
-
-Kabar baiknya, strategi ini estimasi biayanya **Rp0 alias gratis!** Mengingat Kak Dinda punya batas anggaran aman Rp300.000, eksperimen ini sangat aman bagi keuangan Kakak. Kita tidak akan pakai uang itu dulu, kita manfaatkan aset yang Kakak punya sekarang.
-
-Yuk, kita mulai dampingi bisnis Kak Dinda dengan rencana 7 hari ini:
-
-*   **Hari 1: Pilih "Jagoan" Kakak**
-    Coba cek stok skincare Kak Dinda. Pilih 1 produk yang stoknya paling banyak atau yang paling disukai pembeli. Kita akan fokus ke satu item ini saja supaya pesannya kuat dan nggak bikin orang bingung.
-*   **Hari 2: Siapkan Amunisi Visual**
-    Gunakan aplikasi desain gratisan di HP untuk buat flyer sederhana. Judulnya harus bombastis ya, Kak, misalnya: **"Grebek Flash Sale 3 Jam Saja (16.00–19.00)"**. Pastikan harga coretnya terlihat jelas supaya mereka tahu betapa ruginya kalau nggak beli saat itu.
-*   **Hari 3: Mulai Beri "Bocoran" (H-1)**
-    Jangan jualan dulu hari ini. Posting di Story WA dan Instagram foto produknya dengan tulisan: *"Besok ada kejutan besar buat yang sering tanya produk ini. Siap-siap jam 4 sore ya!"* Bikin mereka penasaran dulu, Kak.
-*   **Hari 4: Pengingat Terakhir**
-    Satu jam sebelum dimulai (jam 15.00), kirim reminder atau posting story lagi. *"Satu jam lagi Grebek Flash Sale dimulai! Stok terbatas, siapa cepat dia dapat."* Di sini kita mulai membangun rasa urgensi.
-*   **Hari 5: Waktunya Beraksi!**
-    Tepat jam 16.00, buka promonya. Nah, kuncinya di sini: setiap ada yang beli, Kakak update di Story: *"Tinggal 5 paket lagi!"* atau *"Sisa 2 botol terakhir!"*. Ini akan memancing mereka yang tadinya cuma mau tanya harga jadi langsung buru-buru transfer.
-*   **Hari 6: Konsistensi adalah Kunci**
-    Begitu jam 19.00, langsung tutup promonya. Katakan dengan ramah: *"Mohon maaf, Flash Sale sudah berakhir. Harga kembali normal."* Ini penting supaya pembeli Kakak tahu kalau Kak Dinda serius dengan batas waktunya.
-*   **Hari 7: Rayakan Hasilnya!**
-    Waktunya Kak Dinda rekap semua penjualannya. Coba bandingkan, berapa banyak omzet yang didapat dalam 3 jam itu dibanding hari-hari biasanya? Aku yakin Kakak bakal kaget melihat hasilnya.
-
-Gimana, Kak Dinda? Terasa lebih ringan dan terarah, kan? Kakak nggak perlu pusing mikirin biaya iklan dulu, cukup fokus di langkah-langkah sederhana ini selama seminggu ke depan.
-
-Aku yakin Kak Dinda pasti bisa. Kalau ada yang bikin bingung di tengah jalan, jangan sungkan buat cerita lagi ya. Semangat menjemput rezeki, Kak! 🚀✨`;
 
 // =====================================================
 // KOMPONEN TAMPILAN
@@ -145,39 +25,11 @@ function IconTile({ name, tone = "pink", size = 28 }) {
 
   return (
     <div
-      className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ${tones[tone] || tones.pink
-        }`}
+      className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ${
+        tones[tone] || tones.pink
+      }`}
     >
       <OpportunityIcon name={name} size={size} />
-    </div>
-  );
-}
-
-function ReasonList({ reasons, muted = false }) {
-  return (
-    <div
-      className={`rounded-2xl p-5 ${muted
-          ? "bg-slate-50/80"
-          : "bg-gradient-to-r from-pink-50 via-white to-purple-50"
-        }`}
-    >
-      <h3 className="mb-3 text-lg font-bold text-purple-900">
-        Kenapa strategi ini cocok untukmu?
-      </h3>
-
-      <ul className="space-y-3">
-        {reasons.map((reason, index) => (
-          <li
-            key={index}
-            className="flex items-start gap-3 text-sm leading-6 text-slate-700"
-          >
-            <span className="mt-0.5 shrink-0 text-pink-500">
-              <OpportunityIcon name="check" size={22} />
-            </span>
-            <span>{reason}</span>
-          </li>
-        ))}
-      </ul>
     </div>
   );
 }
@@ -197,7 +49,7 @@ function StrategyMetrics({ strategy, muted = false }) {
       tone: "purple",
     },
     {
-      label: "Target Sederhana",
+      label: "Target",
       value: strategy.target,
       icon: "chart",
       tone: "pink",
@@ -209,16 +61,18 @@ function StrategyMetrics({ strategy, muted = false }) {
       {metrics.map((metric) => (
         <div
           key={metric.label}
-          className={`flex items-center gap-3 rounded-2xl p-4 ${muted
+          className={`flex items-center gap-3 rounded-2xl p-4 ${
+            muted
               ? "border border-slate-100 bg-white"
               : "bg-gradient-to-br from-pink-50 to-purple-50/70"
-            }`}
+          }`}
         >
           <div
-            className={`shrink-0 ${metric.tone === "pink"
+            className={`shrink-0 ${
+              metric.tone === "pink"
                 ? "text-pink-500"
                 : "text-purple-500"
-              }`}
+            }`}
           >
             <OpportunityIcon name={metric.icon} size={32} />
           </div>
@@ -227,7 +81,7 @@ function StrategyMetrics({ strategy, muted = false }) {
             <p className="text-xs text-slate-500">
               {metric.label}
             </p>
-            <p className="mt-1 break-words text-sm font-bold text-[#211B40]">
+            <p className="mt-1 break-words text-sm font-bold text-ink">
               {metric.value}
             </p>
           </div>
@@ -237,33 +91,21 @@ function StrategyMetrics({ strategy, muted = false }) {
   );
 }
 
-
 function StrategyActions({ onExperiment, muted = false }) {
   return (
-    <div className={`grid gap-3 ${muted ? "" : "sm:grid-cols-[1.7fr_1fr]"}`}>
+    <div className="grid gap-3">
       <button
         type="button"
         onClick={onExperiment}
-        className={`flex min-h-14 items-center justify-center gap-3 rounded-2xl px-4 py-3 text-center font-semibold transition hover:shadow-md ${muted
+        className={`flex h-11 items-center justify-center gap-2 rounded-full px-6 text-center text-[15px] font-bold transition hover:opacity-90 ${
+          muted
             ? "border border-purple-200 bg-purple-50 text-purple-800 hover:bg-purple-100"
-            : "bg-gradient-to-r from-pink-400 via-purple-400 to-violet-600 text-white"
-          }`}
+            : "bg-linear-to-r from-cta-from to-cta-to text-white shadow-lg shadow-cta-to/30"
+        }`}
       >
         Lihat Detail &amp; Mulai Eksperimen
         <OpportunityIcon name="arrow" size={20} />
       </button>
-
-      {!muted && (
-        <Link
-          href="/financial-readiness"
-          className="flex min-h-14 items-center justify-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-center text-sm font-bold text-[#211B40] transition hover:bg-amber-100"
-        >
-          <span className="text-orange-500">
-            <OpportunityIcon name="calculator" size={23} />
-          </span>
-          Cek Kesiapan Keuangan
-        </Link>
-      )}
     </div>
   );
 }
@@ -283,7 +125,7 @@ function FormattedText({ text }) {
         return (
           <strong
             key={index}
-            className="font-semibold text-purple-900"
+            className="font-semibold text-ink-title"
           >
             {part.slice(2, -2)}
           </strong>
@@ -343,35 +185,33 @@ function AiNarrativePanel({ narrative, isExample }) {
     .trim();
 
   return (
-    <section className="rounded-2xl border border-purple-100 bg-gradient-to-br from-purple-50/80 via-white to-pink-50/80 p-5 sm:p-6">
-      <div className="mb-4 flex items-start gap-3">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white text-purple-600 shadow-sm">
-          <OpportunityIcon name="sparkle" size={24} />
+    <section className="rounded-2xl bg-lav-pale/40 p-4 sm:p-5">
+      <div className="mb-3 flex items-start gap-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-brand shadow-sm">
+          <OpportunityIcon name="sparkle" size={22} />
         </div>
 
         <div>
-          <h3 className="text-lg font-bold text-purple-900">
+          <h3 className="text-base font-bold text-ink-title">
             Yuk, Ketahui Dulu Kenapa Strategi Ini Cocok Untukmu!
           </h3>
 
-          <p className="mt-1 text-xs leading-5 text-slate-500">
+          <p className="mt-1 text-xs leading-5 text-ink-muted">
             Pendampingan dan arahan strategi untuk membantu
             usahamu bertumbuh.
           </p>
         </div>
       </div>
 
-      <div className="rounded-xl border border-purple-50 bg-white/90 p-4 sm:p-5">
+      <div className="rounded-xl bg-white p-4">
         <FormattedText text={introOnly} />
       </div>
 
-      {isExample && (
-        <p className="mt-3 text-xs leading-5 text-purple-600">
-          ✦ Narasi ini berasal dari contoh output Gemini
-          pada pipeline Google Colab dengan persona Kak Dinda.
-          Belum dihasilkan secara real-time oleh website.
-        </p>
-      )}
+      <p className="mt-3 text-xs leading-5 text-ink-muted">
+        {isExample
+          ? "✦ Alasan ini disusun otomatis dari data strategi dan kondisi usahamu (waktu, tim, keahlian, dan anggaran)."
+          : "✦ Penjelasan ini dibuat AI dari hasil mesin rekomendasi dan kondisi usahamu."}
+      </p>
     </section>
   );
 }
@@ -381,58 +221,63 @@ function AiNarrativePanel({ narrative, isExample }) {
 // =====================================================
 
 function SevenDayPlan({ steps, onViewDetail }) {
-  const previewSteps = steps.slice(0, 3);
+  const [showAll, setShowAll] = useState(false);
+  const visibleSteps = showAll ? steps : steps.slice(0, 3);
 
   return (
-    <section className="rounded-[24px] bg-gradient-to-br from-purple-50 via-[#FCFAFF] to-pink-50 p-5 sm:p-6">
+    <section className="rounded-2xl bg-lav-pale/40 p-4 sm:p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="font-serif text-2xl font-bold text-purple-900">
+        <h2 className="text-base font-bold text-ink-title">
           Rencana Langkah 7 Hari
         </h2>
 
-        <span className="rounded-full bg-white px-3 py-2 text-xs font-semibold text-purple-700">
-          Pratinjau 3 Hari
-        </span>
+        <button
+          type="button"
+          onClick={() => setShowAll((value) => !value)}
+          className="text-sm font-semibold text-brand hover:underline"
+        >
+          {showAll ? "Tampilkan 3 Hari" : "Lihat Semua"}
+        </button>
       </div>
 
-      <p className="mt-2 text-sm leading-6 text-slate-600">
-        Berikut tiga langkah awal dari rencana
-        eksperimen yang direkomendasikan untuk usahamu.
+      <p className="mt-1 text-sm leading-6 text-ink-muted">
+        Ikuti langkah praktis ini selama 7 hari untuk mulai
+        menjalankan strategi.
       </p>
 
-      <div className="mt-5 space-y-2">
-        {previewSteps.map((activity, index) => (
+      <div className="mt-4 space-y-2">
+        {visibleSteps.map((activity, index) => (
           <div
             key={index}
-            className="grid grid-cols-[72px_1fr] items-center gap-3 rounded-xl border border-purple-100 bg-white px-4 py-3 text-sm sm:grid-cols-[90px_1fr]"
+            className="grid grid-cols-[64px_1fr] items-center gap-3 rounded-xl border border-lav-line bg-white px-4 py-2.5 text-sm sm:grid-cols-[80px_1fr]"
           >
-            <span className="font-bold text-purple-700">
+            <span className="font-bold text-brand">
               Hari {index + 1}
             </span>
-
-            <span className="text-slate-700">
-              {activity}
-            </span>
+            <span className="text-ink">{activity}</span>
           </div>
         ))}
       </div>
 
-      <div className="mt-5 flex justify-end">
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+        <button
+          type="button"
+          onClick={() => setShowAll((value) => !value)}
+          className="text-sm font-semibold text-brand hover:underline"
+        >
+          {showAll
+            ? "Tampilkan lebih sedikit"
+            : "Lihat Hari ke-4 s.d. 7 →"}
+        </button>
+
         <button
           type="button"
           onClick={onViewDetail}
-          className="inline-flex items-center gap-2 rounded-xl border border-purple-200 bg-white px-5 py-3 text-sm font-bold text-purple-700 transition hover:bg-purple-50"
+          className="rounded-full border border-lav-line bg-white px-4 py-2 text-sm font-bold text-brand hover:bg-lav-pale"
         >
-          Lihat Lebih Detail
-          <OpportunityIcon name="arrow" size={18} />
+          Lihat Detail Eksperimen
         </button>
       </div>
-
-      <p className="mt-3 text-xs leading-5 text-slate-500">
-        Pratinjau menampilkan tiga dari tujuh langkah
-        hasil pipeline Colab. Detail eksperimen lengkap
-        tersedia setelah melanjutkan ke halaman eksperimen.
-      </p>
     </section>
   );
 }
@@ -442,49 +287,48 @@ function SevenDayPlan({ steps, onViewDetail }) {
 // =====================================================
 
 function MainRecommendation({
+  strategy: mainStrategy,
   onExperiment,
   narrative,
   isExample,
 }) {
   return (
-    <section className="relative overflow-hidden rounded-[26px] border-2 border-purple-200 bg-white p-5 shadow-[0_12px_35px_rgba(140,95,180,0.06)] sm:p-7">
-      <div className="pointer-events-none absolute right-0 top-0 h-40 w-48 rounded-full bg-pink-100/40 blur-3xl" />
-
-      <div className="relative mb-5 flex justify-end">
-        <span className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-pink-400 to-purple-600 px-4 py-2 text-xs font-bold tracking-wide text-white shadow-sm">
-          <OpportunityIcon name="sparkle" size={17} />
-          REKOMENDASI PRIORITAS AI
+    <section className="relative overflow-hidden rounded-3xl border border-pink-line bg-white p-5 shadow-sm md:p-6">
+      <div className="mb-4 flex justify-end">
+        <span className="inline-flex items-center gap-2 rounded-full bg-pink-pale px-3 py-1.5 text-xs font-bold text-pink-ink">
+          <OpportunityIcon name="sparkle" size={15} />
+          Rekomendasi Utama
         </span>
       </div>
 
-      <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
         <IconTile
           name={mainStrategy.icon}
           tone="pink"
-          size={42}
+          size={32}
         />
 
         <div>
-          <h2 className="font-serif text-2xl font-bold leading-tight text-[#1C173C] sm:text-3xl">
+          <h2 className="text-xl font-bold leading-tight text-ink-title md:text-2xl">
             {mainStrategy.title}
           </h2>
 
-          <p className="mt-2 text-sm leading-6 text-slate-600 sm:text-base">
+          <p className="mt-1.5 text-sm leading-6 text-ink-muted">
             {mainStrategy.description}
           </p>
         </div>
       </div>
 
       {/* NARASI AI */}
-      <div className="relative mt-6">
+      <div className="mt-5">
         <AiNarrativePanel
           narrative={narrative}
           isExample={isExample}
         />
       </div>
 
-      {/* RENCANA 7 HARI NAIK KE DALAM REKOMENDASI UTAMA */}
-      <div className="relative mt-5">
+      {/* RENCANA 7 HARI */}
+      <div className="mt-4">
         <SevenDayPlan
           steps={mainStrategy.day_by_day_plan}
           onViewDetail={onExperiment}
@@ -492,12 +336,12 @@ function MainRecommendation({
       </div>
 
       {/* METRIK STRATEGI */}
-      <div className="relative mt-5">
+      <div className="mt-4">
         <StrategyMetrics strategy={mainStrategy} />
       </div>
 
       {/* TOMBOL AKSI */}
-      <div className="relative mt-5">
+      <div className="mt-4">
         <StrategyActions onExperiment={onExperiment} />
       </div>
     </section>
@@ -515,7 +359,7 @@ function AlternativeStrategy({
   onExperiment,
 }) {
   return (
-    <article className="overflow-hidden rounded-[22px] border border-purple-100 bg-white shadow-sm">
+    <article className="overflow-hidden rounded-3xl border border-pink-line bg-white shadow-sm">
       <button
         type="button"
         onClick={onToggle}
@@ -530,28 +374,19 @@ function AlternativeStrategy({
         />
 
         <div className="min-w-0 flex-1">
-          <h3 className="text-base font-bold text-[#211B40] sm:text-lg">
+          <h3 className="text-base font-bold text-ink sm:text-lg">
             {strategy.title}
           </h3>
 
-          <p className="mt-1 text-sm text-slate-600">
+          <p className="mt-1 line-clamp-2 text-sm text-ink-muted">
             {strategy.description}
           </p>
-
-          <div className="mt-4 rounded-xl bg-gradient-to-r from-purple-50 to-pink-50 p-4">
-            <p className="text-xs font-bold text-purple-900">
-              Kenapa ini menjadi strategi #{strategy.rank}?
-            </p>
-
-            <p className="mt-2 text-xs leading-6 text-slate-700">
-              {strategy.whyRanked}
-            </p>
-          </div>
         </div>
 
         <span
-          className={`mt-3 shrink-0 text-purple-600 transition-transform duration-200 ${isOpen ? "rotate-180" : ""
-            }`}
+          className={`mt-3 shrink-0 text-purple-600 transition-transform duration-200 ${
+            isOpen ? "rotate-180" : ""
+          }`}
         >
           <OpportunityIcon name="chevron" size={24} />
         </span>
@@ -560,9 +395,21 @@ function AlternativeStrategy({
       {isOpen && (
         <div
           id={`alternative-${strategy.id}`}
-          className="space-y-4 border-t border-purple-100 bg-[#FFFCFE] px-5 pb-5 pt-5"
+          className="space-y-4 border-t border-pink-line bg-[#FFFCFE] px-5 pb-5 pt-5"
         >
-          <ReasonList reasons={strategy.reasons} muted />
+          <div className="rounded-2xl bg-gradient-to-r from-pink-50 to-purple-50 p-4">
+            <h4 className="font-bold text-ink-title">
+              Deskripsi Eksperimen ini:
+            </h4>
+
+            <p className="mt-2 text-sm leading-6 text-slate-700">
+              {strategy.description}
+            </p>
+
+            <p className="mt-3 text-sm leading-6 text-slate-700">
+              <strong>Target:</strong> {strategy.target}
+            </p>
+          </div>
 
           <StrategyMetrics strategy={strategy} muted />
 
@@ -577,51 +424,97 @@ function AlternativeStrategy({
 }
 
 // =====================================================
+// HEADER ILUSTRASI
+// REVISI: JARAK ATAS DITAMBAHKAN
+// =====================================================
+
+function RecommendationHeader() {
+  return (
+    <header>
+      <p className="mb-2 text-sm font-semibold text-pink-ink">
+        REKOMENDASI STRATEGI
+      </p>
+
+      <h1 className="text-2xl font-bold tracking-tight text-ink-title md:text-3xl">
+        Strategi yang Paling Cocok Untukmu
+      </h1>
+
+      <p className="mt-2 max-w-2xl text-sm leading-6 text-ink-muted">
+        Pilihan strategi eksperimen yang disesuaikan dengan kondisi usahamu.
+      </p>
+    </header>
+  );
+}
+
+// =====================================================
 // HALAMAN UTAMA
 // =====================================================
 
 export default function OpportunityLibraryClient() {
   const router = useRouter();
-
+  const [state, setState] = useState({
+    loading: true,
+    error: "",
+    notReady: null,
+    data: null,
+  });
   const [openedAlternatives, setOpenedAlternatives] =
     useState({});
-
   const [experimentNotice, setExperimentNotice] =
     useState("");
 
-  const [aiNarrative, setAiNarrative] =
-    useState("");
-
   useEffect(() => {
-    try {
-      const raw = sessionStorage.getItem(
-        "elevate_opportunity_ai_narrative"
-      );
+    const controller = new AbortController();
 
-      if (!raw) return;
-
-      let parsed;
-
+    async function load() {
       try {
-        parsed = JSON.parse(raw);
-      } catch {
-        parsed = raw;
-      }
+        const response = await fetch(
+          "/api/recommendations/engine",
+          { cache: "no-store", signal: controller.signal }
+        );
+        const result = await response.json();
 
-      const narrative =
-        typeof parsed === "string"
-          ? parsed
-          : parsed?.narrative ??
-          parsed?.ai_narrative ??
-          parsed?.text ??
-          "";
+        if (response.status === 409 && result.ready === false) {
+          if (!controller.signal.aborted) {
+            setState({
+              loading: false,
+              error: "",
+              notReady: result,
+              data: null,
+            });
+          }
+          return;
+        }
 
-      if (typeof narrative === "string") {
-        setAiNarrative(narrative.trim());
+        if (!response.ok || !result.success) {
+          throw new Error(
+            result.message || "Gagal memuat rekomendasi."
+          );
+        }
+
+        if (!controller.signal.aborted) {
+          setState({
+            loading: false,
+            error: "",
+            notReady: null,
+            data: result,
+          });
+        }
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          setState({
+            loading: false,
+            error: error.message,
+            notReady: null,
+            data: null,
+          });
+        }
       }
-    } catch {
-      // Gunakan narasi contoh jika belum ada data.
     }
+
+    load();
+
+    return () => controller.abort();
   }, []);
 
   function toggleAlternative(id) {
@@ -631,76 +524,113 @@ export default function OpportunityLibraryClient() {
     }));
   }
 
-  function handleExperiment(strategy = mainStrategy) {
-    const selectedStrategy = strategy || mainStrategy;
+  // Strategi sudah disimpan oleh server saat halaman dimuat.
+  // Tombol hanya membuka halaman Rancangan untuk strategi yang dipilih.
+  function handleExperiment(selected) {
+    const target =
+      selected && typeof selected === "object" && "id" in selected
+        ? selected
+        : main;
 
-    const payload = {
-      ...selectedStrategy,
-      selected_at: new Date().toISOString(),
-      source: "opportunity-library",
-      is_demo: true,
-    };
+    const proposalId = target?.raw?.proposal_id;
 
-    try {
-      sessionStorage.setItem(
-        EXPERIMENT_STORAGE_KEY,
-        JSON.stringify(payload)
-      );
-
-      router.push(EXPERIMENT_ROUTE);
-    } catch {
+    if (!proposalId) {
       setExperimentNotice(
-        "Data strategi belum berhasil disimpan. Silakan coba lagi."
+        "Strategi ini belum tersimpan. Muat ulang halaman ini lalu coba lagi."
       );
+      return;
     }
+
+    router.push(
+      `${EXPERIMENT_ROUTE}?proposalId=${encodeURIComponent(proposalId)}`
+    );
   }
 
-  return (
-    <PageShell>
-      <div className="mx-auto max-w-6xl space-y-7 text-[#211B40]">
+  const MISSING_LABELS = {
+    assessment: "Assessment",
+    diagnosis: "Diagnosis usaha",
+    constraints: "Realistic Condition",
+    financial_readiness: "Financial Readiness",
+    playbooks: "Katalog strategi",
+  };
 
-        {/* HEADER */}
-        <header>
-          <span className="inline-flex items-center gap-2 rounded-full bg-pink-100 px-5 py-2 text-sm font-semibold text-pink-700">
-            <OpportunityIcon name="sparkle" size={18} />
-            Rekomendasi Strategi AI untuk Usahamu
-          </span>
+  const recommendations = state.data?.recommendations ?? [];
+  const main = recommendations[0]
+    ? toStrategy(recommendations[0])
+    : null;
+  const alternatives = recommendations.slice(1).map(toStrategy);
 
-          <h1 className="mt-5 font-serif text-3xl font-bold leading-tight text-[#181532] sm:text-4xl lg:text-5xl">
-            Strategi yang Paling Cocok untukmu
-          </h1>
+  let body;
 
-          <p className="mt-3 max-w-4xl text-base leading-7 text-slate-600">
-            Berdasarkan kondisi usaha, tantangan,
-            kesiapan finansial, dan kemampuanmu saat
-            ini, kami memilih strategi yang paling
-            realistis untuk kamu coba.
-          </p>
-
-          <p className="mt-2 text-xs text-purple-600">
-            ✦ Demonstrasi hasil pipeline Google Colab
-            menggunakan persona Kak Dinda.
-          </p>
-        </header>
-
-        {/* REKOMENDASI UTAMA */}
+  if (state.loading) {
+    body = (
+      <section className="rounded-3xl border border-pink-line bg-white p-7 shadow-sm">
+        <p className="text-sm text-ink-muted">
+          Menyusun strategi untuk usahamu...
+        </p>
+      </section>
+    );
+  } else if (state.error) {
+    body = (
+      <section
+        role="alert"
+        className="rounded-3xl border border-amber-200 bg-amber-50 p-7 text-sm leading-7 text-amber-950"
+      >
+        <h2 className="text-lg font-semibold">
+          Strategi belum dapat dimuat
+        </h2>
+        <p className="mt-2">{state.error}</p>
+      </section>
+    );
+  } else if (state.notReady) {
+    const missing = (state.notReady.missing || []).map(
+      (key) => MISSING_LABELS[key] || key
+    );
+    body = (
+      <section className="rounded-3xl border border-pink-line bg-white p-7 shadow-sm">
+        <h2 className="text-xl font-semibold text-ink-title">
+          Lengkapi datamu dulu
+        </h2>
+        <p className="mt-3 text-sm leading-7 text-ink-muted">
+          Kami membutuhkan data berikut sebelum bisa menyusun
+          strategi untukmu
+          {missing.length > 0 ? `: ${missing.join(", ")}.` : "."}
+        </p>
+      </section>
+    );
+  } else if (!main) {
+    body = (
+      <section className="rounded-3xl border border-pink-line bg-white p-7 shadow-sm">
+        <h2 className="text-xl font-semibold text-ink-title">
+          Belum ada strategi yang cocok
+        </h2>
+        <p className="mt-3 text-sm leading-7 text-ink-muted">
+          Dengan waktu, tim, keahlian digital, dan anggaran yang
+          kamu isi saat ini, belum ada strategi di katalog kami
+          yang memenuhi semua syarat. Kamu bisa memperbarui
+          Realistic Condition atau Financial Readiness, lalu
+          melihat halaman ini lagi.
+        </p>
+      </section>
+    );
+  } else {
+    body = (
+      <>
         <MainRecommendation
-          onExperiment={() => handleExperiment(mainStrategy)}
-          narrative={aiNarrative || exampleNarrative}
-          isExample={!aiNarrative}
+          strategy={main}
+          onExperiment={() => handleExperiment(main)}
+          narrative={buildNarrative(main.raw)}
+          isExample={main.narrativeSource !== "gemini"}
         />
 
-        {/* PESAN ERROR */}
         {experimentNotice && (
           <div
             role="alert"
-            className="flex items-start gap-3 rounded-2xl border border-purple-200 bg-purple-50 p-5 text-sm leading-6 text-purple-900"
+            className="flex items-start gap-3 rounded-2xl border border-purple-200 bg-purple-50 p-5 text-sm leading-6 text-ink-title"
           >
             <OpportunityIcon name="info" size={22} />
 
-            <div className="flex-1">
-              {experimentNotice}
-            </div>
+            <div className="flex-1">{experimentNotice}</div>
 
             <button
               type="button"
@@ -712,30 +642,38 @@ export default function OpportunityLibraryClient() {
           </div>
         )}
 
-        {/* ALTERNATIF STRATEGI PALING BAWAH */}
-        <section>
-          <h2 className="mb-4 font-serif text-2xl font-bold text-pink-600">
-            Alternatif Strategi Lainnya (2)
-          </h2>
+        {alternatives.length > 0 && (
+          <section>
+            <h2 className="mb-4 text-lg font-bold text-ink-title">
+              Alternatif Strategi Lainnya ({alternatives.length})
+            </h2>
 
-          <div className="space-y-3">
-            {alternatives.map((strategy) => (
-              <AlternativeStrategy
-                key={strategy.id}
-                strategy={strategy}
-                isOpen={Boolean(
-                  openedAlternatives[strategy.id]
-                )}
-                onToggle={() =>
-                  toggleAlternative(strategy.id)
-                }
-                onExperiment={handleExperiment}
-              />
-            ))}
-          </div>
-        </section>
+            <div className="space-y-3">
+              {alternatives.map((strategy) => (
+                <AlternativeStrategy
+                  key={strategy.id}
+                  strategy={strategy}
+                  isOpen={Boolean(
+                    openedAlternatives[strategy.id]
+                  )}
+                  onToggle={() => toggleAlternative(strategy.id)}
+                  onExperiment={handleExperiment}
+                />
+              ))}
+            </div>
+          </section>
+        )}
+      </>
+    );
+  }
 
+  return (
+    <div className="min-h-full space-y-6 text-ink">
+      <RecommendationHeader />
+
+      <div className="mx-auto max-w-6xl space-y-7 text-ink">
+        {body}
       </div>
-    </PageShell>
+    </div>
   );
 }

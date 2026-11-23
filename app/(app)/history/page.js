@@ -10,11 +10,12 @@ import {
   Clock3,
 } from "lucide-react";
 
-import DashboardLayout from "@/components/layout/DashboardLayout";
 import ExperimentRow, {
   GRID_COLS,
 } from "@/components/experiment-history/ExperimentRow";
+
 import { supabase } from "@/lib/supabase";
+
 
 export default function ExperimentHistoryPage() {
   const [query, setQuery] = useState("");
@@ -32,63 +33,65 @@ export default function ExperimentHistoryPage() {
     let isMounted = true;
 
     async function fetchHistory() {
-      try {
-        setLoading(true);
-        setError("");
+  try {
+    setLoading(true);
+    setError("");
 
-        // Ambil session Supabase yang sedang login.
-        const {
-          data: { session },
-          error: sessionError,
-        } = await supabase.auth.getSession();
+    // Ambil session Supabase yang sedang login.
+    const {
+      data: { session },
+      error: sessionError,
+    } = await supabase.auth.getSession();
 
-        if (sessionError) {
-          throw sessionError;
-        }
-
-        if (!session?.access_token) {
-          throw new Error("Sesi login tidak ditemukan. Silakan login kembali.");
-        }
-
-        // Panggil API History dengan access token.
-        const response = await fetch("/api/experiments/history", {
-          method: "GET",
-          headers: {
-            Authorization: `Bearer ${session.access_token}`,
-          },
-          cache: "no-store",
-        });
-
-        const result = await response.json();
-
-        if (!response.ok) {
-          throw new Error(
-            result.error || "Gagal mengambil riwayat eksperimen."
-          );
-        }
-
-        if (isMounted) {
-          setExperiments(
-            Array.isArray(result.data?.experiments)
-              ? result.data.experiments
-              : []
-          );
-        }
-      } catch (err) {
-        console.error("History fetch error:", err);
-
-        if (isMounted) {
-          setError(
-            err.message || "Terjadi kesalahan saat mengambil data eksperimen."
-          );
-          setExperiments([]);
-        }
-      } finally {
-        if (isMounted) {
-          setLoading(false);
-        }
-      }
+    if (sessionError) {
+      throw sessionError;
     }
+
+    if (!session?.access_token) {
+      throw new Error("Sesi login tidak ditemukan. Silakan login kembali.");
+    }
+
+    // Panggil API History menggunakan access token.
+    const response = await fetch("/api/experiments/history", {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      cache: "no-store",
+    });
+
+    const result = await response.json();
+
+    if (!response.ok || !result.success) {
+      throw new Error(
+        result.message ||
+        result.error ||
+        "Gagal mengambil riwayat eksperimen."
+      );
+    }
+
+    if (isMounted) {
+      setExperiments(
+        Array.isArray(result.data?.experiments)
+          ? result.data.experiments
+          : []
+      );
+    }
+  } catch (err) {
+    console.error("History fetch error:", err);
+
+    if (isMounted) {
+      setError(
+        err.message || "Terjadi kesalahan saat mengambil data eksperimen."
+      );
+      setExperiments([]);
+    }
+  } finally {
+    if (isMounted) {
+      setLoading(false);
+    }
+  }
+}
 
     fetchHistory();
 

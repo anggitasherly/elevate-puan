@@ -1,6 +1,8 @@
+
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Sparkles,
   ShieldCheck,
@@ -139,7 +141,9 @@ function InsightCard({ item, index }) {
 
           {item.limitation && (
             <p className="type-caption text-ink-muted">
-              <span className="font-semibold text-ink-title">Batasan bukti: </span>
+              <span className="font-semibold text-ink-title">
+                Batasan bukti:{" "}
+              </span>
               {item.limitation}
             </p>
           )}
@@ -187,6 +191,7 @@ function OverallAnalysis({ item }) {
   return (
     <div className="rounded-xl border border-lav-line bg-lav-pale/30 p-4 md:p-5">
       <p className="type-body font-medium text-ink-title">{item.insight}</p>
+
       {item.experimentRefs?.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-2">
           {item.experimentRefs.map((ref) => (
@@ -199,6 +204,7 @@ function OverallAnalysis({ item }) {
           ))}
         </div>
       )}
+
       {item.evidence?.length > 0 && (
         <div className="mt-4">
           <p className="type-caption mb-2 font-semibold text-ink-title">
@@ -214,9 +220,12 @@ function OverallAnalysis({ item }) {
           </ul>
         </div>
       )}
+
       {item.limitation && (
         <p className="type-caption mt-3 text-ink-muted">
-          <span className="font-semibold text-ink-title">Batasan analisis: </span>
+          <span className="font-semibold text-ink-title">
+            Batasan analisis:{" "}
+          </span>
           {item.limitation}
         </p>
       )}
@@ -228,7 +237,12 @@ export default function AILearningInsights() {
   const [result, setResult] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
+  const [isStarting, setIsStarting] = useState(false);
+  const [startError, setStartError] = useState("");
 
+  const router = useRouter();
+
+  // Memuat AI Learning Insights menggunakan Bearer Token.
   const loadAnalysis = useCallback(async (signal) => {
     try {
       setIsLoading(true);
@@ -257,6 +271,7 @@ export default function AILearningInsights() {
       });
 
       const responseData = await response.json();
+
       if (!response.ok || !responseData.success) {
         throw new Error(
           responseData.message || "Gagal membuat AI Learning Insights."
@@ -266,6 +281,7 @@ export default function AILearningInsights() {
       if (!signal?.aborted) setResult(responseData.data);
     } catch (err) {
       if (err.name === "AbortError" || signal?.aborted) return;
+
       console.error("AI Learning Insights Error:", err);
       setError(err.message || "Terjadi kesalahan saat membuat analisis.");
     } finally {
@@ -275,9 +291,57 @@ export default function AILearningInsights() {
 
   useEffect(() => {
     const controller = new AbortController();
+
     loadAnalysis(controller.signal);
+
     return () => controller.abort();
   }, [loadAnalysis]);
+
+  // Memulai proses diagnosis untuk siklus Next Growth berikutnya.
+  const startNextGrowth = useCallback(async () => {
+    try {
+      setIsStarting(true);
+      setStartError("");
+
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+
+      if (sessionError) throw sessionError;
+
+      if (!session?.access_token) {
+        throw new Error("Sesi login tidak ditemukan. Silakan login kembali.");
+      }
+
+      const response = await fetch("/api/next-growth/diagnosis", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+        },
+        cache: "no-store",
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (response.status === 201 && data.success) {
+        router.push("/business-overview");
+        return;
+      }
+
+      setStartError(
+        data.message || "Next Growth belum bisa dimulai. Coba lagi nanti."
+      );
+    } catch (err) {
+      console.error("Next Growth Error:", err);
+      setStartError(
+        err.message || "Terjadi kesalahan. Periksa koneksi lalu coba lagi."
+      );
+    } finally {
+      setIsStarting(false);
+    }
+  }, [router]);
 
   if (isLoading) {
     return (
@@ -341,9 +405,11 @@ export default function AILearningInsights() {
               </h3>
             </div>
           </div>
+
           <p className="type-body mt-5 text-ink-muted">
             {businessAnalysis.summary}
           </p>
+
           {businessAnalysis.highlights?.length > 0 && (
             <div className="mt-5 rounded-xl bg-lav-pale/60 p-4">
               <p className="type-body font-semibold text-ink-title">
@@ -402,6 +468,7 @@ export default function AILearningInsights() {
             icon={TrendingUp}
             emptyText="Belum ada hasil positif yang cukup didukung oleh bukti."
           />
+
           <InsightGroup
             title="What Didn't Work"
             description="Hasil yang belum sesuai target atau hambatan yang tercatat."
@@ -409,6 +476,7 @@ export default function AILearningInsights() {
             icon={Target}
             emptyText="Belum ada bukti yang cukup untuk menyimpulkan bagian ini."
           />
+
           <InsightGroup
             title="Why It Might Have Happened"
             description="Kemungkinan penjelasan berdasarkan hubungan antara hipotesis, aktivitas, hambatan, dan hasil."
@@ -416,6 +484,7 @@ export default function AILearningInsights() {
             icon={CircleHelp}
             emptyText="Data saat ini belum cukup untuk menjelaskan kemungkinan penyebab."
           />
+
           <InsightGroup
             title="Unresolved Problem Signals"
             description="Masalah yang masih terlihat atau belum terjawab dari bukti yang tersedia."
@@ -423,6 +492,7 @@ export default function AILearningInsights() {
             icon={Search}
             emptyText="Belum ada sinyal masalah berulang yang dapat disimpulkan."
           />
+
           <InsightGroup
             title="Emerging Opportunity Signals"
             description="Sinyal positif atau peluang yang mulai terlihat, bukan rekomendasi tindakan."
@@ -444,6 +514,7 @@ export default function AILearningInsights() {
                 harapan, dan kemungkinan penyebabnya berdasarkan bukti.
               </p>
             </div>
+
             <ExperimentAnalysis
               worked={diagnosis.worked ?? []}
               didNotWork={diagnosis.didNotWork ?? []}
@@ -468,6 +539,7 @@ export default function AILearningInsights() {
             </p>
           </div>
         </div>
+
         <div className="mt-5 space-y-4">
           {learnings.length > 0 ? (
             learnings.map((item, index) => (
@@ -490,24 +562,38 @@ export default function AILearningInsights() {
         bukti, bukan kepastian keberhasilan.
       </p>
 
-      {/* Tombol visual saja. Integrasi siklus Next Growth dikerjakan terpisah. */}
+      {/* Next Growth */}
       <div className="flex flex-col items-start gap-2 rounded-2xl border border-lav-line bg-white p-5 shadow-sm md:flex-row md:items-center md:justify-between md:p-6">
         <div>
-          <h3 className="type-h2 text-ink-title">Siap melanjutkan pertumbuhan bisnis?</h3>
+          <h3 className="type-h2 text-ink-title">
+            Siap melanjutkan pertumbuhan bisnis?
+          </h3>
           <p className="type-caption mt-1 text-ink-muted">
-            Mulai siklus pertumbuhan berikutnya setelah evaluasi kondisi bisnis diperbarui.
+            Mulai siklus pertumbuhan berikutnya setelah evaluasi kondisi bisnis
+            diperbarui.
           </p>
         </div>
-        <button
-          type="button"
-          disabled
-          aria-disabled="true"
-          title="Integrasi Next Growth akan ditambahkan pada tahap berikutnya."
-          className="inline-flex shrink-0 cursor-not-allowed items-center gap-2 rounded-full bg-gradient-to-r from-cta-from to-cta-to px-6 py-3 text-sm font-semibold text-white opacity-70 shadow-md shadow-pink-ink/20"
-        >
-          Next Growth
-          <ArrowRight size={17} />
-        </button>
+
+        <div className="flex flex-col items-start gap-2 md:items-end">
+          <button
+            type="button"
+            onClick={startNextGrowth}
+            disabled={isStarting}
+            className="inline-flex shrink-0 items-center gap-2 rounded-full bg-gradient-to-r from-cta-from to-cta-to px-6 py-3 text-sm font-semibold text-white shadow-md shadow-pink-ink/20 transition-all duration-200 hover:brightness-105 hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isStarting ? "Memproses..." : "Next Growth"}
+            <ArrowRight size={17} />
+          </button>
+
+          {startError && (
+            <p
+              role="alert"
+              className="type-caption max-w-xs text-red-600 md:text-right"
+            >
+              {startError}
+            </p>
+          )}
+        </div>
       </div>
     </section>
   );

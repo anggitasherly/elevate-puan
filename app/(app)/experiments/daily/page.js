@@ -1,25 +1,61 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { useExperiment } from "@/lib/experiment-youfih/store";
+
+/*
+ * Halaman ini tidak lagi memanggil Supabase langsung.
+ * Alur: Browser -> /api/experiments/* -> Supabase.
+ *   - GET  /api/experiments/detail          (memuat data)
+ *   - POST /api/experiments/[id]/checkin    (simpan catatan / keuangan)
+ *   - POST /api/experiments/[id]/finish     (selesai / hentikan / kedaluwarsa)
+ * Mode preview tetap memakai data demo dan sessionStorage.
+ */
+
+/* =========================================
+   KONSTANTA
+========================================= */
+
+const EXPERIMENT_DURATION_DAYS = 7;
+
+/*
+ * true  = jika data asli gagal dimuat (belum login, eksperimen tidak
+ *         ditemukan, dsb.), halaman otomatis menampilkan mode preview.
+ * false = tampilkan layar error seperti biasa.
+ * Ubah ke false saat aplikasi sudah dipakai pengguna sungguhan.
+ */
+const AUTO_PREVIEW_FALLBACK = true;
+
+const STATUS = {
+  ACTIVE: "active",
+  LEGACY_RUNNING: "running",
+  COMPLETED: "completed",
+  STOPPED: "stopped",
+  EXPIRED: "expired",
+};
+
+// active = status sekarang, running = status lama (kompatibilitas)
+const ACTIVE_STATUSES = [STATUS.ACTIVE, STATUS.LEGACY_RUNNING];
 
 const moods = ["Lancar", "Lumayan", "Agak sulit"];
 
-const EMPTY_OBJECT = Object.freeze({});
-
 /* =========================================
-   ISI EKSPERIMEN (Grebek Flash Sale 3 Jam)
+   DATA DEMO UNTUK MODE PREVIEW
+   Tidak pernah dikirim ke server / database.
 ========================================= */
 
-const ex = {
-  title: "Grebek Flash Sale 3 Jam",
-  category: "Flash Sale",
+const DEMO_FINANCE = {
+  margin: 0.4,
+  budget: 100000,
 };
 
-const days = [
+const DEMO_DAILY_PLAN = [
   {
-    focus: 'Pilih satu produk "jagoan" supaya pesan flash sale kuat dan tidak membingungkan.',
+    day: 1,
+    title: "Pilih produk jagoan",
+    focus:
+      'Pilih satu produk "jagoan" supaya pesan flash sale kuat dan tidak membingungkan.',
     tasks: [
       "Cek stok skincare yang kamu punya sekarang",
       "Pilih 1 produk dengan stok terbanyak atau yang paling disukai pembeli",
@@ -31,6 +67,8 @@ const days = [
     ],
   },
   {
+    day: 2,
+    title: "Siapkan materi promosi",
     focus: "Siapkan amunisi visual untuk flash sale.",
     tasks: [
       "Buat flyer sederhana dengan aplikasi desain gratis di HP",
@@ -43,6 +81,8 @@ const days = [
     ],
   },
   {
+    day: 3,
+    title: "Mulai beri bocoran",
     focus: 'Mulai beri "bocoran" supaya calon pembeli penasaran.',
     tasks: [
       "Posting teaser di Story WhatsApp",
@@ -55,6 +95,8 @@ const days = [
     ],
   },
   {
+    day: 4,
+    title: "Kirim pengingat",
     focus: "Kirim pengingat terakhir dan bangun rasa urgensi.",
     tasks: [
       "Kirim reminder satu jam sebelum mulai (sekitar jam 15.00)",
@@ -67,6 +109,8 @@ const days = [
     ],
   },
   {
+    day: 5,
+    title: "Jalankan flash sale",
     focus: "Hari flash sale: buka promo tepat waktu dan jaga rasa urgensi.",
     tasks: [
       "Buka promo tepat jam 16.00",
@@ -79,6 +123,8 @@ const days = [
     ],
   },
   {
+    day: 6,
+    title: "Tutup promo",
     focus: "Tutup promo tepat waktu supaya pembeli percaya batas waktunya serius.",
     tasks: [
       "Tutup promo tepat jam 19.00",
@@ -91,6 +137,8 @@ const days = [
     ],
   },
   {
+    day: 7,
+    title: "Evaluasi hasil",
     focus: "Rayakan hasilnya dan catat pelajaran dari eksperimen.",
     tasks: [
       "Rekap semua penjualan dari flash sale",
@@ -104,11 +152,46 @@ const days = [
   },
 ];
 
+function buildDemoExperiment() {
+  const id = generatePreviewId();
+
+  const start = startOfToday();
+  const end = addDays(start, EXPERIMENT_DURATION_DAYS - 1);
+
+  return {
+    id,
+    business_id: "demo-business",
+    proposal_id: "demo-proposal",
+    title: "Grebek Flash Sale 3 Jam",
+    channels: ["Flash Sale"],
+    metric_name: `Total omzet usaha selama ${EXPERIMENT_DURATION_DAYS} hari`,
+    baseline_value: 0,
+    target_value: 250000,
+    budget_planned: 0,
+    growth_level: 1,
+    start_date: dateOnly(start),
+    end_date: dateOnly(end),
+    status: STATUS.ACTIVE,
+    daily_plan: DEMO_DAILY_PLAN,
+    is_preview: true,
+  };
+}
+
+/* =========================================
+   HELPER UMUM
+========================================= */
+
 const card =
   "rounded-[20px] border border-[#e9e7f3]/90 bg-white/80 shadow-[0_4px_15px_rgba(67,51,130,0.055)] backdrop-blur-[2px]";
 
-const fmt = (date, options) =>
-  date.toLocaleDateString("id-ID", options);
+const fmt = (date, options) => date.toLocaleDateString("id-ID", options);
+
+const toNumber = (value) => {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  if (value === null || value === undefined || value === "") return 0;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+};
 
 // FORMAT ANGKA RUPIAH
 const formatRupiah = (value) => {
@@ -143,226 +226,406 @@ const parseRupiah = (value) => {
   return String(value).replace(/\D/g, "");
 };
 
-const jam = () =>
-  new Date()
+const formatTime = (value) => {
+  const date = value ? new Date(value) : new Date();
+
+  if (Number.isNaN(date.getTime())) return "";
+
+  return date
     .toLocaleTimeString("id-ID", {
       hour: "2-digit",
       minute: "2-digit",
     })
     .replace(":", ".");
+};
 
-function parseDate(value) {
-  if (!value) return new Date();
-
+function generatePreviewId() {
   if (
-    typeof value === "string" &&
-    /^\d{4}-\d{2}-\d{2}$/.test(value)
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
   ) {
-    const [year, month, day] = value.split("-").map(Number);
+    return `preview-${crypto.randomUUID()}`;
+  }
+
+  return `preview-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2, 10)}`;
+}
+
+/* =========================================
+   HELPER TANGGAL (KALENDER LOKAL)
+========================================= */
+
+function dateOnly(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function parseDateOnly(value) {
+  if (!value) return null;
+
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}/.test(value)) {
+    const [year, month, day] = value
+      .slice(0, 10)
+      .split("-")
+      .map(Number);
+
     return new Date(year, month - 1, day);
   }
 
   const date = new Date(value);
 
-  return Number.isNaN(date.getTime())
-    ? new Date()
-    : date;
+  if (Number.isNaN(date.getTime())) return null;
+
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function startOfToday() {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+}
+
+function addDays(date, amount) {
+  return new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate() + amount
+  );
+}
+
+// Selisih hari kalender (bukan selisih jam)
+function daysBetween(from, to) {
+  const a = Date.UTC(from.getFullYear(), from.getMonth(), from.getDate());
+  const b = Date.UTC(to.getFullYear(), to.getMonth(), to.getDate());
+
+  return Math.round((b - a) / 86400000);
 }
 
 /* =========================================
-   ORNAMEN BUNGA DAN DAUN
+   HELPER JSONB DAN RENCANA HARIAN
 ========================================= */
 
-function TopFlowers() {
-  return (
-    <svg
-      viewBox="0 0 300 230"
-      className="pointer-events-none absolute -right-5 top-0 z-[25] w-[100px] opacity-40 sm:w-[155px] md:w-[205px] lg:w-[270px]"
-      fill="none"
-      aria-hidden="true"
-    >
-      {/* BUNGA KECIL UNGU */}
-      <g transform="translate(105 65) scale(.72)">
-        <ellipse cy="-19" rx="12" ry="22" fill="#C5B3F1" />
-        <ellipse
-          cy="-19"
-          rx="12"
-          ry="22"
-          fill="#E0D5FA"
-          transform="rotate(72)"
-        />
-        <ellipse
-          cy="-19"
-          rx="12"
-          ry="22"
-          fill="#B7A0EB"
-          transform="rotate(144)"
-        />
-        <ellipse
-          cy="-19"
-          rx="12"
-          ry="22"
-          fill="#E0D5FA"
-          transform="rotate(216)"
-        />
-        <ellipse
-          cy="-19"
-          rx="12"
-          ry="22"
-          fill="#C5B3F1"
-          transform="rotate(288)"
-        />
-        <circle r="9" fill="#F8D16D" />
-      </g>
+function parseJson(value, fallback = []) {
+  if (value === null || value === undefined || value === "") {
+    return fallback;
+  }
 
-      {/* BUNGA KECIL PINK */}
-      <g transform="translate(58 115) scale(.48)">
-        <ellipse cy="-18" rx="11" ry="20" fill="#F3A8D5" />
-        <ellipse
-          cy="-18"
-          rx="11"
-          ry="20"
-          fill="#F9C7E7"
-          transform="rotate(72)"
-        />
-        <ellipse
-          cy="-18"
-          rx="11"
-          ry="20"
-          fill="#E994C9"
-          transform="rotate(144)"
-        />
-        <ellipse
-          cy="-18"
-          rx="11"
-          ry="20"
-          fill="#F9C7E7"
-          transform="rotate(216)"
-        />
-        <ellipse
-          cy="-18"
-          rx="11"
-          ry="20"
-          fill="#F3A8D5"
-          transform="rotate(288)"
-        />
-        <circle r="8" fill="#F8D16D" />
-      </g>
-    </svg>
+  if (typeof value === "string") {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return value;
+    }
+  }
+
+  return value;
+}
+
+function itemText(item) {
+  if (typeof item === "string") return item;
+
+  return (
+    item?.title ||
+    item?.description ||
+    item?.task ||
+    item?.text ||
+    ""
   );
 }
 
-function BottomFlowers() {
+function toTaskList(value) {
+  const parsed = parseJson(value, []);
+
+  if (Array.isArray(parsed)) {
+    return parsed.map(itemText).map((t) => String(t).trim()).filter(Boolean);
+  }
+
+  if (typeof parsed === "string") {
+    return parsed
+      .split(/\s*•\s*|\n/)
+      .map((t) => t.trim())
+      .filter(Boolean);
+  }
+
+  return [];
+}
+
+function planToArray(rawPlan) {
+  const parsed = parseJson(rawPlan, []);
+
+  if (Array.isArray(parsed)) return parsed;
+
+  if (parsed && typeof parsed === "object") {
+    if (Array.isArray(parsed.days)) return parsed.days;
+    if (Array.isArray(parsed.daily_plan)) return parsed.daily_plan;
+    if (Array.isArray(parsed.plan)) return parsed.plan;
+
+    return Object.entries(parsed).map(([key, item], index) => ({
+      day: Number(String(key).match(/\d+/)?.[0]) || index + 1,
+      ...(item && typeof item === "object"
+        ? item
+        : { description: String(item ?? "") }),
+    }));
+  }
+
+  return [];
+}
+
+/*
+ * Mengambil fokus, tugas (maksimal 3), dan contoh isian untuk satu hari
+ * dari daily_plan. Tidak membuat tugas buatan: jika AI hanya memberi
+ * 1 tugas, checklist hanya 1.
+ */
+function extractDayInfo(rawPlan, day) {
+  const list = planToArray(rawPlan);
+
+  const item = list.find((entry, index) => {
+    if (typeof entry === "string") return index + 1 === day;
+
+    const value = Number(
+      entry?.day ?? entry?.day_number ?? entry?.hari ?? index + 1
+    );
+
+    return value === day;
+  });
+
+  if (!item) return null;
+
+  if (typeof item === "string") {
+    return {
+      focus: item,
+      tasks: toTaskList(item).slice(0, 3),
+      hint: [],
+    };
+  }
+
+  const title = String(item.title || item.name || "").trim();
+  const meaningfulTitle = title && title !== `Hari ${day}` ? title : "";
+  const description = String(item.description || item.detail || "").trim();
+
+  let tasks = toTaskList(
+    item.tasks ?? item.checklist ?? item.activities ?? item.steps
+  );
+
+  if (tasks.length === 0) tasks = toTaskList(description);
+  if (tasks.length === 0 && meaningfulTitle) tasks = [meaningfulTitle];
+
+  const hintRaw = parseJson(item.hint ?? item.hints, []);
+
+  return {
+    focus:
+      item.focus ||
+      meaningfulTitle ||
+      description ||
+      `Kerjakan tugas hari ke-${day}.`,
+    tasks: tasks.slice(0, 3),
+    hint: Array.isArray(hintRaw) ? hintRaw.map(String) : [],
+  };
+}
+
+function allTasksLabel(total) {
+  if (total <= 1) return "tugas di atas";
+  if (total === 2) return "kedua tugas di atas";
+  return "ketiga tugas di atas";
+}
+
+/* =========================================
+   HELPER CHECK-IN
+========================================= */
+
+function isNoteSaved(row) {
+  if (!row) return false;
+
+  const steps = parseJson(row.steps_done, []);
+
   return (
-    <svg
-      viewBox="0 0 260 260"
-      className="pointer-events-none absolute bottom-0 right-0 z-0 w-[105px] opacity-100 sm:w-[150px] md:w-[205px] lg:w-[270px]"
-      fill="none"
-      aria-hidden="true"
-    >
-      <path
-        d="M0 170C45 130 80 170 100 210C125 240 170 240 210 260H0Z"
-        fill="#FBE1F5"
-        opacity=".8"
-      />
-
-      <path d="M0 240Q15 135 50 125Q58 195 0 240Z" fill="#65BFA7" />
-      <path d="M5 250Q35 160 75 155Q60 220 5 250Z" fill="#80CDB5" />
-      <path d="M0 260Q25 200 95 195Q65 250 0 260Z" fill="#A0DCC9" />
-
-      <path
-        d="M15 245Q35 175 50 125"
-        stroke="#398F79"
-        strokeWidth="2"
-      />
-
-      <path
-        d="M15 245Q45 195 75 155"
-        stroke="#398F79"
-        strokeWidth="2"
-      />
-
-      <path d="M65 260Q95 170 135 170Q120 235 65 260Z" fill="#BCA7F1" />
-      <path d="M80 260Q125 190 170 205Q140 255 80 260Z" fill="#D1BDF9" />
-      <path d="M90 260Q130 220 185 235Q145 265 90 260Z" fill="#A98DE8" />
-
-      <g transform="translate(185 230) scale(.85)">
-        <ellipse cy="-19" rx="12" ry="21" fill="#F4A6D7" />
-        <ellipse
-          cy="-19"
-          rx="12"
-          ry="21"
-          fill="#F8C0E5"
-          transform="rotate(72)"
-        />
-        <ellipse
-          cy="-19"
-          rx="12"
-          ry="21"
-          fill="#E99AD0"
-          transform="rotate(144)"
-        />
-        <ellipse
-          cy="-19"
-          rx="12"
-          ry="21"
-          fill="#F8C0E5"
-          transform="rotate(216)"
-        />
-        <ellipse
-          cy="-19"
-          rx="12"
-          ry="21"
-          fill="#F4A6D7"
-          transform="rotate(288)"
-        />
-        <circle r="10" fill="#F8D16D" />
-        <circle r="4" fill="#E7A83D" />
-      </g>
-
-      <g transform="translate(110 225) scale(.55)">
-        <ellipse cy="-18" rx="11" ry="20" fill="#B9A0EF" />
-        <ellipse
-          cy="-18"
-          rx="11"
-          ry="20"
-          fill="#D2C0FA"
-          transform="rotate(72)"
-        />
-        <ellipse
-          cy="-18"
-          rx="11"
-          ry="20"
-          fill="#A98DE8"
-          transform="rotate(144)"
-        />
-        <ellipse
-          cy="-18"
-          rx="11"
-          ry="20"
-          fill="#D2C0FA"
-          transform="rotate(216)"
-        />
-        <ellipse
-          cy="-18"
-          rx="11"
-          ry="20"
-          fill="#B9A0EF"
-          transform="rotate(288)"
-        />
-        <circle r="8" fill="#F9D36B" />
-      </g>
-    </svg>
+    Array.isArray(steps) &&
+    steps.length > 0 &&
+    row.progress_note !== null &&
+    row.progress_note !== undefined &&
+    row.mood !== null &&
+    row.mood !== undefined
   );
 }
 
+function isFinanceSaved(row) {
+  return Boolean(
+    row &&
+      row.revenue_today !== null &&
+      row.revenue_today !== undefined &&
+      row.experiment_cost_today !== null &&
+      row.experiment_cost_today !== undefined
+  );
+}
+
+function isDayComplete(row) {
+  return isNoteSaved(row) && isFinanceSaved(row);
+}
+
+// Bentuk catatan untuk ditampilkan (hari ini maupun hari lain)
+function buildSavedNote(row) {
+  if (!isNoteSaved(row)) return null;
+
+  const steps = parseJson(row.steps_done, []);
+  const savedAt = Array.isArray(steps) ? steps[0]?.saved_at : null;
+
+  return {
+    progress: row.progress_note,
+    obstacle: row.obstacle || "",
+    mood: row.mood,
+    time: savedAt ? formatTime(savedAt) : "",
+  };
+}
+
+function readPreviewCheckins(experimentId) {
+  try {
+    const raw = sessionStorage.getItem(
+      `ep_preview_checkins_${experimentId}`
+    );
+    const parsed = raw ? JSON.parse(raw) : [];
+
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writePreviewCheckins(experimentId, rows) {
+  sessionStorage.setItem(
+    `ep_preview_checkins_${experimentId}`,
+    JSON.stringify(rows)
+  );
+}
+
+function writePreviewExperiment(experiment) {
+  const text = JSON.stringify(experiment);
+
+  sessionStorage.setItem(`ep_preview_experiment_${experiment.id}`, text);
+  sessionStorage.setItem("ep_preview_experiment", text);
+  sessionStorage.setItem("ep_current_experiment_id", experiment.id);
+}
+
+// Galat dari server belum login (status 401)
+function isAuthMissing(err) {
+  const message = String(err?.message || "");
+
+  return (
+    err?.status === 401 ||
+    err?.name === "AuthSessionMissingError" ||
+    /auth session missing/i.test(message)
+  );
+}
+
+// Pesan yang mudah dipahami untuk alasan jatuh ke mode preview
+function friendlyReason(err) {
+  if (isAuthMissing(err)) {
+    return "Kamu belum login, jadi data eksperimen asli belum bisa dibaca.";
+  }
+
+  return String(err?.message || "") || "Data eksperimen asli belum bisa dibaca.";
+}
+
+/* =========================================
+   KEUANGAN (Financial Readiness)
+========================================= */
+
+function calculateFinanceLimits(data) {
+  if (!data) return { margin: 0, budget: 0 };
+
+  const marginRaw = toNumber(data.product_margin_pct);
+  const margin = marginRaw > 1 ? marginRaw / 100 : marginRaw;
+
+  const recommended = data.recommended_budget ?? data.recommended_budge;
+
+  const values = [
+    recommended,
+    data.free_surplus,
+    data.willingness_to_lose,
+    data.affordable_loss,
+  ];
+
+  if (values.some((v) => v === null || v === undefined)) {
+    return { margin, budget: 0 };
+  }
+
+  return {
+    margin,
+    budget: Math.max(0, Math.min(...values.map(toNumber))),
+  };
+}
+
+/* =========================================
+   EVALUASI (experiment_results)
+   Dipakai di mode preview. Pada mode asli,
+   evaluasi dihitung di server.
+========================================= */
+
+const clampInt = (value) =>
+  Math.max(
+    -2147483648,
+    Math.min(2147483647, Math.round(Number(value) || 0))
+  );
+
+function buildEvaluation(experiment, rows, margin, status) {
+  const revenue = rows.reduce(
+    (sum, r) => sum + toNumber(r.revenue_today),
+    0
+  );
+
+  const cost = rows.reduce(
+    (sum, r) => sum + toNumber(r.experiment_cost_today),
+    0
+  );
+
+  const gross = revenue * margin;
+  const net = gross - cost;
+
+  const filledDays = rows.filter(isDayComplete).length;
+
+  const target = toNumber(experiment.target_value);
+
+  let learnings = "";
+
+  if (status === STATUS.COMPLETED) {
+    learnings = `Eksperimen diselesaikan sampai Hari ${EXPERIMENT_DURATION_DAYS}. Check-in lengkap ${filledDays} dari ${EXPERIMENT_DURATION_DAYS} hari.`;
+  } else if (status === STATUS.STOPPED) {
+    learnings = `Eksperimen dihentikan oleh pengguna sebelum selesai. Check-in lengkap ${filledDays} dari ${EXPERIMENT_DURATION_DAYS} hari.`;
+  } else {
+    learnings = `Periode eksperimen berakhir sebelum selesai. Check-in lengkap ${filledDays} dari ${EXPERIMENT_DURATION_DAYS} hari.`;
+  }
+
+  return {
+    actual_value: Math.round(revenue),
+    target_met: target > 0 && revenue >= target,
+    checkin_completeness:
+      Math.round((filledDays / EXPERIMENT_DURATION_DAYS) * 1000) / 10,
+    cost_spent: clampInt(cost),
+    additional_revenue: clampInt(revenue),
+    gross_profit: clampInt(gross),
+    net_profit: clampInt(net),
+    roi: cost > 0 ? Math.round((net / cost) * 10000) / 100 : null,
+    learnings,
+  };
+}
 
 /* =========================================
    KOMPONEN POP-UP TANPA SCROLLBAR
 ========================================= */
 
 function Modal({ icon, title, text, onClose, children }) {
-  return (
+  // false saat render di server, true di browserser.
+  const mounted = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false
+  );
+
+  if (!mounted) return null;
+
+  return createPortal(
     <div className="fixed inset-0 z-[9999] flex items-center justify-center overflow-hidden bg-[#22204f]/35 px-3 py-3 backdrop-blur-[3px] sm:px-4 sm:py-4">
 
       <div className="relative w-full max-w-[510px] overflow-hidden rounded-[20px] border border-[#eee8fb] bg-white px-4 py-5 text-center shadow-[0_20px_70px_rgba(45,35,100,0.22)] sm:rounded-[25px] sm:px-10 sm:py-7">
@@ -423,17 +686,63 @@ function Modal({ icon, title, text, onClose, children }) {
         </div>
 
       </div>
+    </div>,
+    document.body
+  );
+}
+
+/* =========================================
+   DAFTAR TUGAS TERKUNCI
+   (hari terlewat / hari yang belum dibuka)
+========================================= */
+
+function LockedTasks({ tasks = [], label, badgeClass }) {
+  return (
+    <div className="overflow-hidden rounded-[15px] border border-[#ece9f8] bg-white">
+      <div className="divide-y divide-[#f1eefa]">
+        {tasks.map((task, index) => (
+          <div
+            key={index}
+            className="flex flex-wrap items-center gap-2 px-3 py-3 sm:gap-3 sm:px-4"
+          >
+            <input
+              type="checkbox"
+              checked={false}
+              disabled
+              readOnly
+              aria-label="Tugas terkunci"
+              className="h-5 w-5 shrink-0 accent-violet-600"
+            />
+
+            <span className="min-w-0 flex-1 basis-[150px] text-[12px] text-[#77809c] sm:text-[13px]">
+              {task}
+            </span>
+
+            <span
+              className={`rounded-full px-3 py-1 text-[10px] font-bold ${badgeClass}`}
+            >
+              {label}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
 
-
 /* =========================================
-   KOMPONEN TASK / CHECKLIST
+   KOMPONEN CHECKLIST (MAKS. 3 TUGAS + 1 FORM)
 ========================================= */
 
-function Task({ k, label, hint = [], saved, onSave }) {
-  const [open, setOpen] = useState(false);
+function ChecklistForm({
+  tasks = [],
+  hint = [],
+  saved,
+  busy = false,
+  onSave,
+  onProgress,
+}) {
+  const [checked, setChecked] = useState(() => tasks.map(() => false));
 
   const [f, setF] = useState({
     progress: "",
@@ -441,51 +750,75 @@ function Task({ k, label, hint = [], saved, onSave }) {
     mood: "",
   });
 
+  const allChecked =
+    tasks.length > 0 && checked.every(Boolean);
+
   const formComplete =
     f.progress.trim() !== "" &&
     f.obstacle.trim() !== "" &&
     f.mood !== "";
 
-  function simpan() {
-    if (!formComplete || saved) return;
+  const canSave = allChecked && formComplete && !busy;
 
-    onSave(k, {
-      ...f,
-      time: jam(),
-    });
+  // Beri tahu halaman berapa tugas yang sedang dicentang
+  useEffect(() => {
+    if (onProgress) {
+      onProgress(checked.filter(Boolean).length);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [checked]);
 
-    setOpen(false);
+  function toggle(index) {
+    setChecked((old) =>
+      old.map((v, i) => (i === index ? !v : v))
+    );
   }
+
+  function simpan() {
+    if (!canSave || saved) return;
+
+    onSave({
+      ...f,
+      time: formatTime(),
+    });
+  }
+
+  /* TAMPILAN SETELAH DISIMPAN (TERKUNCI) */
 
   if (saved) {
     return (
       <div className="overflow-hidden rounded-[15px] border border-[#ece9f8] bg-white shadow-[0_2px_8px_rgba(67,51,130,0.035)]">
-        <div className="flex flex-wrap items-center gap-2 px-3 py-3 sm:gap-3 sm:px-4">
-          <input
-            type="checkbox"
-            checked
-            disabled
-            aria-label="Tugas selesai"
-            className="h-5 w-5 shrink-0 accent-violet-600"
-          />
+        <div className="divide-y divide-[#f1eefa]">
+          {tasks.map((task, index) => (
+            <div
+              key={index}
+              className="flex flex-wrap items-center gap-2 px-3 py-3 sm:gap-3 sm:px-4"
+            >
+              <input
+                type="checkbox"
+                checked
+                disabled
+                readOnly
+                aria-label="Tugas selesai"
+                className="h-5 w-5 shrink-0 accent-violet-600"
+              />
 
-          <span className="min-w-0 flex-1 basis-[150px] text-[12px] text-[#77809c] sm:text-[13px]">
-            {label}
-          </span>
+              <span className="min-w-0 flex-1 basis-[150px] text-[12px] text-[#77809c] sm:text-[13px]">
+                {task}
+              </span>
 
-          <span className="rounded-full bg-[#e1f7ed] px-3 py-1 text-[10px] font-bold text-[#169574]">
-            Selesai
-          </span>
-
-          <span className="text-[10px] text-[#9299ae] sm:text-[11px]">
-            {saved.time || "-"}
-          </span>
+              <span className="rounded-full bg-[#e1f7ed] px-3 py-1 text-[10px] font-bold text-[#169574]">
+                Selesai
+              </span>
+            </div>
+          ))}
         </div>
 
         <div className="grid gap-3 border-l-[4px] border-[#7651db] bg-gradient-to-r from-[#f3efff] to-[#faf9ff] p-3 sm:gap-4 sm:p-4 md:grid-cols-[1.4fr_1fr_0.7fr]">
           <div className="min-w-0">
             <p className="mb-2 text-[12px] font-extrabold text-[#6544c8]">
               Catatan tersimpan
+              {saved.time ? ` • ${saved.time}` : ""}
             </p>
 
             <p className="mb-1 text-[10px] text-[#8990aa]">
@@ -521,140 +854,163 @@ function Task({ k, label, hint = [], saved, onSave }) {
     );
   }
 
+  /* TAMPILAN SEBELUM DISIMPAN */
+
   return (
     <div className="overflow-hidden rounded-[15px] border border-[#ece9f8] bg-white">
-      <div className="flex flex-wrap items-center gap-2 px-3 py-3 sm:gap-3 sm:px-4">
-        <input
-          type="checkbox"
-          checked={open}
-          onChange={() => setOpen((old) => !old)}
-          aria-label="Buka form catatan"
-          className="h-5 w-5 shrink-0 cursor-pointer accent-violet-600"
-        />
+      {/* DAFTAR TUGAS */}
+      <div className="divide-y divide-[#f1eefa]">
+        {tasks.map((task, index) => (
+          <label
+            key={index}
+            className="flex cursor-pointer flex-wrap items-center gap-2 px-3 py-3 sm:gap-3 sm:px-4"
+          >
+            <input
+              type="checkbox"
+              checked={Boolean(checked[index])}
+              onChange={() => toggle(index)}
+              aria-label={`Centang tugas ${index + 1}`}
+              className="h-5 w-5 shrink-0 cursor-pointer accent-violet-600"
+            />
 
-        <span className="min-w-0 flex-1 basis-[150px] text-[12px] text-[#39476e] sm:text-[13px]">
-          {label}
-        </span>
+            <span
+              className={`min-w-0 flex-1 basis-[150px] text-[12px] sm:text-[13px] ${
+                checked[index]
+                  ? "text-[#77809c]"
+                  : "text-[#39476e]"
+              }`}
+            >
+              {task}
+            </span>
 
-        <span
-          className={`rounded-full px-3 py-1 text-[10px] font-bold ${
-            open
-              ? "bg-[#fff4df] text-[#b17a19]"
-              : "bg-[#fff0f5] text-[#dc4383]"
-          }`}
-        >
-          {open ? "Isi catatan" : "Belum selesai"}
-        </span>
-
-        <span className="text-[10px] text-[#a1a6b9] sm:text-[11px]">
-          -
-        </span>
+            <span
+              className={`rounded-full px-3 py-1 text-[10px] font-bold ${
+                checked[index]
+                  ? "bg-[#e1f7ed] text-[#169574]"
+                  : "bg-[#fff0f5] text-[#dc4383]"
+              }`}
+            >
+              {checked[index] ? "Dikerjakan" : "Belum selesai"}
+            </span>
+          </label>
+        ))}
       </div>
 
-      {open && (
-        <div className="space-y-4 border-t border-[#efecf8] bg-[#faf9ff] p-3 sm:space-y-5 sm:p-4">
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="min-w-0">
-              <label className="text-[12px] font-bold text-[#263b7c]">
-                Bagaimana perkembangannya?{" "}
-                <span className="text-[#dc4383]">*</span>
-              </label>
+      {/* SATU FORM UNTUK SEMUA TUGAS */}
+      <div className="space-y-4 border-t border-[#efecf8] bg-[#faf9ff] p-3 sm:space-y-5 sm:p-4">
+        <p className="text-[12px] font-extrabold text-[#6544c8]">
+          Catatan hari ini
+        </p>
 
-              <textarea
-                required
-                className="inp mt-2 w-full min-w-0 rounded-xl border border-[#e6e1f5] bg-white p-3 text-sm outline-none focus:border-[#8b6ce0]"
-                rows={3}
-                placeholder={
-                  "Contoh: " +
-                  (hint[0] || "Ceritakan perkembangan hari ini")
-                }
-                value={f.progress}
-                onChange={(e) =>
-                  setF((old) => ({
-                    ...old,
-                    progress: e.target.value,
-                  }))
-                }
-              />
-            </div>
-
-            <div className="min-w-0">
-              <label className="text-[12px] font-bold text-[#263b7c]">
-                Apa kendalanya?{" "}
-                <span className="text-[#dc4383]">*</span>
-              </label>
-
-              <textarea
-                required
-                className="inp mt-2 w-full min-w-0 rounded-xl border border-[#e6e1f5] bg-white p-3 text-sm outline-none focus:border-[#8b6ce0]"
-                rows={3}
-                placeholder={
-                  "Contoh: " +
-                  (hint[1] || "Ceritakan kendala hari ini")
-                }
-                value={f.obstacle}
-                onChange={(e) =>
-                  setF((old) => ({
-                    ...old,
-                    obstacle: e.target.value,
-                  }))
-                }
-              />
-            </div>
-          </div>
-
-          <div>
-            <p className="mb-2 text-[12px] font-bold text-[#263b7c]">
-              Perasaanmu hari ini{" "}
-              <span className="text-[#dc4383]">*</span>
-            </p>
-
-            <div className="flex flex-wrap gap-2">
-              {moods.map((m) => (
-                <button
-                  type="button"
-                  key={m}
-                  onClick={() =>
-                    setF((old) => ({
-                      ...old,
-                      mood: m,
-                    }))
-                  }
-                  className={`rounded-full border px-3 py-2 text-[10px] font-semibold transition sm:px-4 sm:text-[11px] ${
-                    f.mood === m
-                      ? "border-[#704bd5] bg-[#704bd5] text-white"
-                      : "border-[#e2dcf5] bg-white text-[#6855a6] hover:bg-[#f2eeff]"
-                  }`}
-                >
-                  {m}
-                </button>
-              ))}
-            </div>
-
-            {!f.mood && (
-              <p className="mt-2 text-[10px] text-[#dc4383]">
-                Pilih salah satu perasaan sebelum menyimpan.
-              </p>
-            )}
-          </div>
-
-          <div>
-            <button
-              type="button"
-              disabled={!formComplete}
-              onClick={simpan}
-              className="w-full rounded-full bg-gradient-to-r from-[#7045d5] to-[#5632c4] px-6 py-2.5 text-[12px] font-bold text-white shadow-md transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
-            >
-              Simpan catatan
-            </button>
-          </div>
-
-          <p className="text-[10px] leading-relaxed text-[#9291a5]">
-            * Semua kolom wajib diisi sebelum catatan dapat disimpan.
-            Catatan yang sudah tersimpan tidak dapat diubah.
+        <div>
+          <p className="mb-2 text-[12px] font-bold text-[#263b7c]">
+            Perasaanmu hari ini{" "}
+            <span className="text-[#dc4383]">*</span>
           </p>
+
+          <div className="flex flex-wrap gap-2">
+            {moods.map((m) => (
+              <button
+                type="button"
+                key={m}
+                onClick={() =>
+                  setF((old) => ({
+                    ...old,
+                    mood: m,
+                  }))
+                }
+                className={`rounded-full border px-3 py-2 text-[10px] font-semibold transition sm:px-4 sm:text-[11px] ${
+                  f.mood === m
+                    ? "border-[#704bd5] bg-[#704bd5] text-white"
+                    : "border-[#e2dcf5] bg-white text-[#6855a6] hover:bg-[#f2eeff]"
+                }`}
+              >
+                {m}
+              </button>
+            ))}
+          </div>
+
+          {!f.mood && (
+            <p className="mt-2 text-[10px] text-[#dc4383]">
+              Pilih salah satu perasaan sebelum menyimpan.
+            </p>
+          )}
         </div>
-      )}
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="min-w-0">
+            <label className="text-[12px] font-bold text-[#263b7c]">
+              Bagaimana perkembangannya?{" "}
+              <span className="text-[#dc4383]">*</span>
+            </label>
+
+            <textarea
+              required
+              maxLength={2000}
+              className="inp mt-2 w-full min-w-0 rounded-xl border border-[#e6e1f5] bg-white p-3 text-sm outline-none focus:border-[#8b6ce0]"
+              rows={3}
+              placeholder={
+                "Contoh: " +
+                (hint[0] || "Ceritakan perkembangan hari ini")
+              }
+              value={f.progress}
+              onChange={(e) =>
+                setF((old) => ({
+                  ...old,
+                  progress: e.target.value,
+                }))
+              }
+            />
+          </div>
+
+          <div className="min-w-0">
+            <label className="text-[12px] font-bold text-[#263b7c]">
+              Apa kendalanya?{" "}
+              <span className="text-[#dc4383]">*</span>
+            </label>
+
+            <textarea
+              required
+              maxLength={2000}
+              className="inp mt-2 w-full min-w-0 rounded-xl border border-[#e6e1f5] bg-white p-3 text-sm outline-none focus:border-[#8b6ce0]"
+              rows={3}
+              placeholder={
+                "Contoh: " +
+                (hint[1] || "Ceritakan kendala hari ini")
+              }
+              value={f.obstacle}
+              onChange={(e) =>
+                setF((old) => ({
+                  ...old,
+                  obstacle: e.target.value,
+                }))
+              }
+            />
+          </div>
+        </div>
+
+        <div>
+          <button
+            type="button"
+            disabled={!canSave}
+            onClick={simpan}
+            className="w-full rounded-full bg-gradient-to-r from-[#7045d5] to-[#5632c4] px-6 py-2.5 text-[12px] font-bold text-white shadow-md transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
+          >
+            Simpan catatan
+          </button>
+
+          {!allChecked && (
+            <p className="mt-2 text-[10px] text-[#dc4383]">
+              Centang {allTasksLabel(tasks.length)} sebelum menyimpan.
+            </p>
+          )}
+        </div>
+
+        <p className="text-[10px] leading-relaxed text-[#9291a5]">
+          * Semua kolom wajib diisi sebelum catatan dapat disimpan.
+          Catatan yang sudah tersimpan tidak dapat diubah.
+        </p>
+      </div>
     </div>
   );
 }
@@ -666,22 +1022,30 @@ function Task({ k, label, hint = [], saved, onSave }) {
 export default function Daily() {
   const router = useRouter();
 
-  const { s, ready, update } = useExperiment();
+  const savingRef = useRef(false);
+  const finalizingRef = useRef(false);
+  const autoAdvanceRef = useRef(false);
 
-  // Sembunyikan footer hanya pada halaman Daily Check-in
-  useEffect(() => {
-    const footer = document.querySelector("footer");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [actionError, setActionError] = useState("");
+  const [busy, setBusy] = useState(false);
 
-    if (footer) {
-      footer.style.display = "none";
-    }
+  const [isPreview, setIsPreview] = useState(false);
+  const [previewNotice, setPreviewNotice] = useState("");
+  const [exp, setExp] = useState(null);
+  const [checkins, setCheckins] = useState([]);
+  const [margin, setMargin] = useState(0);
+  const [budgetLimit, setBudgetLimit] = useState(0);
 
-    return () => {
-      if (footer) {
-        footer.style.display = "";
-      }
-    };
-  }, []);
+  const [realToday, setRealToday] = useState(() => startOfToday());
+  const [previewOffset, setPreviewOffset] = useState(0);
+
+  // Hari yang sedang dilihat. null = mengikuti hari kalender (hari ini).
+  const [viewOverride, setViewOverride] = useState(null);
+
+  const [liveDone, setLiveDone] = useState(0);
+  const [missedDismissed, setMissedDismissed] = useState(false);
 
   const [fin, setFin] = useState({
     revenue: "",
@@ -691,169 +1055,718 @@ export default function Daily() {
   const [successPopup, setSuccessPopup] = useState(null);
   const [stop, setStop] = useState(false);
   const [finishPopup, setFinishPopup] = useState(false);
-  const [skippedDay, setSkippedDay] = useState(null);
+  const [resultUrl, setResultUrl] = useState("");
 
-  const state = s || {};
-  const notes = state.notes ?? EMPTY_OBJECT;
-  const finance = state.finance ?? EMPTY_OBJECT;
-
-  const day = Number(state.day) || 1;
-  const d = days?.[day - 1];
-
-  const keys = [0, 1, 2].map((t) => `${day}-${t}`);
-
-  const allNotes = keys.every((k) => Boolean(notes[k]));
-  const finSaved = finance[day];
-  const ready2 = allNotes && Boolean(finSaved);
-
-  const previousDay = day - 1;
-
-  const previousKeys = [0, 1, 2].map(
-    (t) => `${previousDay}-${t}`
-  );
-
-  const previousIncomplete =
-    day > 1 &&
-    (
-      !previousKeys.every((k) => Boolean(notes[k])) ||
-      !finance[previousDay]
-    );
-
-  /* PENGALIHAN HALAMAN */
-
+  // Sembunyikan footer hanya pada halaman Daily Check-in
   useEffect(() => {
-    if (!ready) return;
+    const footer = document.querySelector("footer");
+    const previousDisplay = footer?.style.display;
 
-    if (state.status === "idle") {
-      router.replace("/");
-      return;
+    if (footer) {
+      footer.style.display = "none";
     }
 
+    return () => {
+      if (footer) {
+        footer.style.display = previousDisplay || "";
+      }
+    };
+  }, []);
+
+  /* =====================================
+     NAVIGASI
+  ===================================== */
+
+  function hasilUrl(experimentId, preview) {
+    return `/experiments/hasil?${
+      preview ? "mode=preview&" : ""
+    }experimentId=${encodeURIComponent(experimentId)}`;
+  }
+
+  function kembali() {
     if (
-      state.status !== "active" &&
-      state.status !== "idle"
+      typeof window !== "undefined" &&
+      window.history.length > 1
     ) {
-      router.replace("/experiments/hasil");
+      router.back();
+    } else {
+      router.push("/home");
     }
-  }, [ready, state.status, router]);
+  }
 
-  /* SINKRONISASI CATATAN KEUANGAN */
+  function bukaPreview() {
+    window.location.href =
+      window.location.pathname + "?mode=preview";
+  }
 
-  useEffect(() => {
-    const saved = finance[day];
-
-    setFin({
-      revenue: saved ? String(saved.revenue ?? "") : "",
-      cost: saved ? String(saved.cost ?? "") : "",
-    });
-  }, [day, finance]);
-
-  /* PINDAH HARI OTOMATIS */
+  /* =====================================
+     AMBIL DATA EKSPERIMEN + CHECK-IN
+     (mode asli lewat GET /api/experiments/detail)
+  ===================================== */
 
   useEffect(() => {
+    let mounted = true;
+
+    /*
+     * MODE PREVIEW
+     * Hanya memakai sessionStorage. Tidak memanggil server.
+     * `reason` diisi bila preview muncul karena data asli gagal dimuat.
+     */
+    function applyPreview(reason) {
+      const params = new URLSearchParams(window.location.search);
+      const urlExperimentId = params.get("experimentId")?.trim() || "";
+
+      const storedId = sessionStorage.getItem("ep_current_experiment_id");
+
+      const previewId =
+        urlExperimentId.startsWith("preview-")
+          ? urlExperimentId
+          : storedId?.startsWith("preview-")
+            ? storedId
+            : "";
+
+      let previewExperiment = null;
+
+      if (previewId) {
+        try {
+          const raw =
+            sessionStorage.getItem(`ep_preview_experiment_${previewId}`) ||
+            sessionStorage.getItem("ep_preview_experiment");
+
+          const parsed = raw ? JSON.parse(raw) : null;
+
+          if (parsed?.id === previewId) {
+            previewExperiment = parsed;
+          }
+        } catch {
+          previewExperiment = null;
+        }
+      }
+
+      if (!previewExperiment) {
+        previewExperiment = buildDemoExperiment();
+        writePreviewExperiment(previewExperiment);
+        writePreviewCheckins(previewExperiment.id, []);
+      }
+
+      const offset = Number(
+        sessionStorage.getItem(
+          `ep_preview_day_offset_${previewExperiment.id}`
+        )
+      );
+
+      if (!mounted) return;
+
+      setIsPreview(true);
+      setPreviewNotice(reason || "");
+      setError("");
+      setExp(previewExperiment);
+      setCheckins(readPreviewCheckins(previewExperiment.id));
+      setMargin(DEMO_FINANCE.margin);
+      setBudgetLimit(DEMO_FINANCE.budget);
+      setPreviewOffset(Number.isFinite(offset) && offset > 0 ? offset : 0);
+    }
+
+    async function loadData() {
+      setLoading(true);
+      setError("");
+
+      try {
+        const params = new URLSearchParams(window.location.search);
+
+        const forcePreview = params.get("mode") === "preview";
+
+        if (forcePreview) {
+          applyPreview("");
+          return;
+        }
+
+        /*
+         * MODE ASLI
+         *
+         * Login, kepemilikan bisnis, dan pemilihan eksperimen
+         * dicek di server oleh route.
+         */
+
+        try {
+          const urlExperimentId =
+            params.get("experimentId")?.trim() || "";
+
+          const storedId = sessionStorage.getItem(
+            "ep_current_experiment_id"
+          );
+
+          const experimentId =
+            (urlExperimentId && !urlExperimentId.startsWith("preview-")
+              ? urlExperimentId
+              : "") ||
+            (storedId && !storedId.startsWith("preview-")
+              ? storedId
+              : "");
+
+          const query = new URLSearchParams({ pick: "active" });
+
+          if (experimentId) {
+            query.set("experimentId", experimentId);
+          }
+
+          const res = await fetch(
+            `/api/experiments/detail?${query.toString()}`,
+            { cache: "no-store" }
+          );
+
+          const payload = await res.json().catch(() => ({}));
+
+          if (!res.ok) {
+            const apiError = new Error(
+              payload?.error ||
+                "Data eksperimen asli belum bisa dibaca."
+            );
+
+            apiError.status = res.status;
+
+            throw apiError;
+          }
+
+          const experimentData = payload.experiment;
+
+          if (!experimentData) {
+            throw new Error(
+              "Eksperimen aktif tidak ditemukan. Pilih strategi dan jalankan eksperimen terlebih dahulu."
+            );
+          }
+
+          sessionStorage.setItem(
+            "ep_current_experiment_id",
+            experimentData.id
+          );
+
+          // Eksperimen yang sudah selesai/berhenti/kedaluwarsa -> halaman Hasil
+          if (
+            [
+              STATUS.COMPLETED,
+              STATUS.STOPPED,
+              STATUS.EXPIRED,
+            ].includes(experimentData.status)
+          ) {
+            router.replace(hasilUrl(experimentData.id, false));
+            return;
+          }
+
+          if (!ACTIVE_STATUSES.includes(experimentData.status)) {
+            throw new Error(
+              "Eksperimen ini belum dijalankan. Jalankan eksperimen dari halaman Rancangan terlebih dahulu."
+            );
+          }
+
+          const checkinRows = payload.checkins || [];
+
+          // Financial Readiness (margin dan batas biaya)
+          const limits = calculateFinanceLimits(payload.finance);
+
+          if (!mounted) return;
+
+          setIsPreview(false);
+          setPreviewNotice("");
+          setExp(experimentData);
+          setCheckins(checkinRows);
+          setMargin(limits.margin);
+          setBudgetLimit(limits.budget);
+        } catch (err) {
+          if (isAuthMissing(err)) {
+            // Belum login itu keadaan wajar, bukan bug. Cukup info biasa.
+            console.info("Belum login, memakai mode preview.");
+          } else {
+            console.error("Gagal mengambil data Daily:", err?.message);
+          }
+
+          if (AUTO_PREVIEW_FALLBACK) {
+            // Data asli gagal dimuat -> tampilkan contoh (tanpa database)
+            applyPreview(friendlyReason(err));
+          } else if (mounted) {
+            setError(friendlyReason(err));
+          }
+        }
+      } finally {
+        if (mounted) {
+          setLoading(false);
+        }
+      }
+    }
+
+    loadData();
+
+    return () => {
+      mounted = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /* =====================================
+     PERGANTIAN TANGGAL KALENDER
+     (halaman dibiarkan terbuka melewati tengah malam)
+  ===================================== */
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const now = startOfToday();
+
+      setRealToday((old) =>
+        dateOnly(old) === dateOnly(now) ? old : now
+      );
+    }, 30000);
+
+    return () => clearInterval(timer);
+  }, []);
+
+  /* =====================================
+     PERHITUNGAN HARI (BERDASARKAN TANGGAL KALENDER)
+  ===================================== */
+
+  const today = isPreview ? addDays(realToday, previewOffset) : realToday;
+  const todayStr = dateOnly(today);
+
+  const start = exp ? parseDateOnly(exp.start_date) : null;
+
+  // Hari ke-1 = start_date, hari ke-7 = start_date + 6
+  const day = start ? daysBetween(start, today) + 1 : 0;
+
+  const dayValid = day >= 1 && day <= EXPERIMENT_DURATION_DAYS;
+
+  const periodEnded = Boolean(start) && day > EXPERIMENT_DURATION_DAYS;
+
+  const todayCheckin =
+    [...checkins]
+      .filter((c) => c.checkin_date === todayStr)
+      .pop() || null;
+
+  const noteSaved = isNoteSaved(todayCheckin);
+  const finSaved = isFinanceSaved(todayCheckin);
+  const ready2 = noteSaved && finSaved;
+
+  /* =====================================
+     TUGAS HARI INI (DARI daily_plan, MAKS. 3)
+  ===================================== */
+
+  const dayInfo =
+    exp && dayValid ? extractDayInfo(exp.daily_plan, day) : null;
+
+  const tasks = dayInfo?.tasks || [];
+  const hint = dayInfo?.hint || [];
+  const totalTasks = tasks.length;
+
+  /* =====================================
+     HARI TERLEWATKAN
+     Dihitung dari tanggal + ada/tidaknya check-in.
+     Tidak membuat baris check-in palsu.
+  ===================================== */
+
+  const missedDays = [];
+
+  if (start && day > 1) {
+    const checkinDates = new Set(checkins.map((c) => c.checkin_date));
+
+    for (
+      let n = 1;
+      n <= Math.min(day - 1, EXPERIMENT_DURATION_DAYS);
+      n++
+    ) {
+      if (!checkinDates.has(dateOnly(addDays(start, n - 1)))) {
+        missedDays.push(n);
+      }
+    }
+  }
+
+  /* =====================================
+     KEMBALI KE HARI INI SAAT TANGGAL BERGANTI
+  ===================================== */
+
+  const [prevTodayStr, setPrevTodayStr] = useState(todayStr);
+
+  if (prevTodayStr !== todayStr) {
+    setPrevTodayStr(todayStr);
+    setViewOverride(null);
+  }
+
+  useEffect(() => {
+    autoAdvanceRef.current = false;
+  }, [todayStr]);
+
+  /* =====================================
+     SINKRONISASI CATATAN KEUANGAN
+  ===================================== */
+
+  const finKey = `${todayStr}|${finSaved}`;
+  const [prevFinKey, setPrevFinKey] = useState(null);
+
+  if (prevFinKey !== finKey) {
+    setPrevFinKey(finKey);
+    setFin(
+      finSaved && todayCheckin
+        ? {
+            revenue: String(todayCheckin.revenue_today ?? ""),
+            cost: String(todayCheckin.experiment_cost_today ?? ""),
+          }
+        : { revenue: "", cost: "" }
+    );
+  }
+
+  /* =====================================
+     OTOMATIS PINDAH KE HARI BERIKUTNYA
+     Setelah catatan + keuangan hari ini sama-sama tersimpan.
+     Hari berikutnya hanya tampil terkunci sampai tanggalnya tiba.
+  ===================================== */
+
+  useEffect(() => {
+    if (!autoAdvanceRef.current) return;
+
     if (
-      !ready ||
-      state.status !== "active" ||
+      loading ||
+      !exp ||
+      !ACTIVE_STATUSES.includes(exp.status) ||
       !ready2 ||
-      day >= 7 ||
-      successPopup
+      successPopup ||
+      day >= EXPERIMENT_DURATION_DAYS ||
+      viewOverride !== null
     ) {
       return;
     }
 
     const timer = setTimeout(() => {
-      update((p) => {
-        if (
-          p.status !== "active" ||
-          p.day !== day ||
-          p.day >= 7
-        ) {
-          return p;
-        }
+      autoAdvanceRef.current = false;
+      setViewOverride(day + 1);
 
-        return {
-          ...p,
-          day: p.day + 1,
-        };
-      });
+      if (typeof window !== "undefined") {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
     }, 1200);
 
     return () => clearTimeout(timer);
-  }, [
-    ready,
-    state.status,
-    ready2,
-    day,
-    update,
-    successPopup,
-  ]);
+  }, [loading, exp, ready2, successPopup, day, viewOverride]);
 
-  /* OTOMATIS MENUJU HASIL SETELAH POP-UP SELESAI */
+  /* =====================================
+     PERIODE 7 HARI BERAKHIR -> expired / completed
+  ===================================== */
 
   useEffect(() => {
-    if (!finishPopup) return;
+    if (loading || !exp || !periodEnded) return;
+    if (!ACTIVE_STATUSES.includes(exp.status)) return;
+
+    const endStr = dateOnly(
+      addDays(start, EXPERIMENT_DURATION_DAYS - 1)
+    );
+
+    const lastDayRow = checkins.find((c) => c.checkin_date === endStr);
+
+    // Hari 7 sudah lengkap -> dianggap completed, selain itu expired
+    finalizeExperiment(
+      isDayComplete(lastDayRow) ? STATUS.COMPLETED : STATUS.EXPIRED,
+      false
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, exp, periodEnded]);
+
+  /* =====================================
+     OTOMATIS MENUJU HASIL SETELAH POP-UP SELESAI
+  ===================================== */
+
+  useEffect(() => {
+    if (!finishPopup || !resultUrl) return;
 
     const timer = setTimeout(() => {
-      update((p) => ({
-        ...p,
-        status: "completed",
-      }));
-
-      router.replace("/experiments/hasil");
+      router.replace(resultUrl);
     }, 2000);
 
     return () => clearTimeout(timer);
-  }, [finishPopup, update, router]);
+  }, [finishPopup, resultUrl, router]);
 
-  if (!ready || state.status !== "active") {
-    return null;
+  /* =====================================
+     FINALISASI: completed / stopped / expired
+     - preview : hanya sessionStorage
+     - asli    : POST /api/experiments/[id]/finish
+               (server mengubah status satu kali dan membuat
+                experiment_results satu kali)
+  ===================================== */
+
+  async function finalizeExperiment(newStatus, showPopup) {
+    if (finalizingRef.current || !exp) return false;
+
+    finalizingRef.current = true;
+
+    try {
+      if (isPreview) {
+        const evaluation = buildEvaluation(
+          exp,
+          checkins,
+          margin,
+          newStatus
+        );
+
+        const updated = { ...exp, status: newStatus };
+
+        writePreviewExperiment(updated);
+
+        sessionStorage.setItem(
+          `ep_preview_result_${exp.id}`,
+          JSON.stringify({ experiment_id: exp.id, ...evaluation })
+        );
+
+        setExp(updated);
+      } else {
+        const res = await fetch(
+          `/api/experiments/${encodeURIComponent(exp.id)}/finish`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ status: newStatus }),
+          }
+        );
+
+        const payload = await res.json().catch(() => ({}));
+
+        if (!res.ok) {
+          throw new Error(
+            payload?.error ||
+              "Status eksperimen gagal diperbarui. Silakan coba lagi."
+          );
+        }
+
+        setExp({
+          ...exp,
+          status: payload?.experiment?.status || newStatus,
+        });
+      }
+
+      const url = hasilUrl(exp.id, isPreview);
+
+      if (showPopup) {
+        setResultUrl(url);
+        setFinishPopup(true);
+      } else {
+        router.replace(url);
+      }
+
+      return true;
+    } catch (err) {
+      console.error("Gagal memproses status eksperimen:", err?.message);
+
+      setActionError(
+        err?.message ||
+          "Status eksperimen gagal diperbarui. Silakan coba lagi."
+      );
+
+      finalizingRef.current = false;
+
+      return false;
+    }
   }
 
-  if (!d) return null;
+  /* =====================================
+     SIMPAN CHECK-IN (1 BARIS PER TANGGAL)
+     Bagian yang sudah disimpan TIDAK PERNAH ditimpa lagi.
+  ===================================== */
 
-  /* TANGGAL EKSPERIMEN */
+  const SECTION_CHECK = {
+    note: isNoteSaved,
+    finance: isFinanceSaved,
+  };
 
-  const start = parseDate(state.startDate);
+  function mergeCheckin(row) {
+    setCheckins((old) => {
+      const index = old.findIndex(
+        (c) => c.id === row.id || c.checkin_date === row.checkin_date
+      );
 
-  const end = new Date(start);
-  end.setDate(start.getDate() + 6);
+      if (index === -1) return [...old, row];
 
-  const cur = new Date(start);
-  cur.setDate(start.getDate() + day - 1);
+      const copy = [...old];
+      copy[index] = row;
 
-  /* DATA KEUANGAN PER HARI (hanya hari 1-7) */
+      return copy;
+    });
+  }
 
-  const dayRecords = [1, 2, 3, 4, 5, 6, 7]
-    .map((n) => ({ n, item: finance[n] }))
-    .filter((x) => x.item);
+  function alreadySavedError(existingRow) {
+    const err = new Error(
+      "Bagian ini sudah tersimpan sebelumnya dan tidak dapat diubah lagi."
+    );
 
-  const margin = Number(finance.margin) || 0;
+    err.existingRow = existingRow;
 
-  const budgetLimit =
-    Number(state.budgetLimit ?? finance.experimentBudget) || 0;
+    return err;
+  }
 
-  /* TOTAL REVENUE */
+  async function persistCheckin(section, fields) {
+    if (!exp || !dayValid) {
+      throw new Error("Hari ini berada di luar periode eksperimen.");
+    }
+
+    const alreadySaved = SECTION_CHECK[section];
+
+    /* PREVIEW: hanya sessionStorage */
+
+    if (isPreview) {
+      const list = readPreviewCheckins(exp.id);
+
+      let row = list.find((r) => r.checkin_date === todayStr);
+
+      if (!row) {
+        row = {
+          id: generatePreviewId(),
+          experiment_id: exp.id,
+          checkin_date: todayStr,
+          steps_done: null,
+          progress_note: null,
+          mood: null,
+          obstacle: null,
+          metric_value: null,
+          revenue_today: null,
+          experiment_cost_today: null,
+          created_at: new Date().toISOString(),
+        };
+
+        list.push(row);
+      }
+
+      if (alreadySaved(row)) {
+        throw alreadySavedError(row);
+      }
+
+      Object.assign(row, fields);
+
+      writePreviewCheckins(exp.id, list);
+
+      return row;
+    }
+
+    /* MODE ASLI: semua pengecekan dilakukan di server */
+
+    const requestBody =
+      section === "note"
+        ? {
+            section,
+            checkinDate: todayStr,
+            tasks: (fields.steps_done || []).map((s) => s.task),
+            progress: fields.progress_note,
+            mood: fields.mood,
+            obstacle: fields.obstacle,
+          }
+        : {
+            section,
+            checkinDate: todayStr,
+            revenue: fields.revenue_today,
+            cost: fields.experiment_cost_today,
+          };
+
+    const res = await fetch(
+      `/api/experiments/${encodeURIComponent(exp.id)}/checkin`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody),
+      }
+    );
+
+    const payload = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      // Eksperimen sudah tidak aktif -> arahkan ke halaman Hasil
+      if (payload?.code === "not_active") {
+        router.replace(hasilUrl(exp.id, false));
+      }
+
+      const apiError = new Error(
+        payload?.error || "Check-in gagal disimpan. Silakan coba lagi."
+      );
+
+      if (payload?.code === "already_saved" && payload?.checkin) {
+        apiError.existingRow = payload.checkin;
+      }
+
+      throw apiError;
+    }
+
+    return payload.checkin;
+  }
+
+  /* SIMPAN CATATAN CHECKLIST (SATU CATATAN UNTUK SEMUA TUGAS) */
+
+  async function saveNote(value) {
+    if (savingRef.current || noteSaved || !dayValid) return;
+
+    savingRef.current = true;
+    setBusy(true);
+    setActionError("");
+
+    try {
+      const savedAt = new Date().toISOString();
+
+      const row = await persistCheckin("note", {
+        steps_done: tasks.map((task, index) => ({
+          index,
+          task,
+          done: true,
+          saved_at: savedAt,
+        })),
+        progress_note: value.progress.trim(),
+        mood: value.mood,
+        obstacle: value.obstacle.trim(),
+      });
+
+      mergeCheckin(row);
+
+      // Jika keuangan hari ini juga sudah tersimpan -> pindah otomatis
+      if (isDayComplete(row)) {
+        autoAdvanceRef.current = true;
+      }
+
+      setSuccessPopup({
+        title: "Catatan berhasil disimpan!",
+        text: "Catatan perkembangan, kendala, dan perasaan hari ini sudah tersimpan dan tidak dapat diubah lagi.",
+        icon: "📋",
+      });
+    } catch (err) {
+      console.error("Gagal menyimpan catatan:", err?.message);
+
+      if (err?.existingRow) mergeCheckin(err.existingRow);
+
+      setActionError(
+        err?.message || "Catatan gagal disimpan. Silakan coba lagi."
+      );
+    } finally {
+      savingRef.current = false;
+      setBusy(false);
+    }
+  }
+
+  /* =====================================
+     KEUANGAN
+  ===================================== */
+
+  const dayRecords = checkins.filter(isFinanceSaved);
 
   const total = dayRecords.reduce(
-    (sum, x) => sum + (Number(x.item.revenue) || 0),
+    (sum, r) => sum + toNumber(r.revenue_today),
     0
   );
-
-  /* TOTAL ESTIMASI KEUNTUNGAN */
 
   const totalProfit = dayRecords.reduce(
-    (sum, x) =>
+    (sum, r) =>
       sum +
-      (Number(x.item.revenue) || 0) * margin -
-      (Number(x.item.cost) || 0),
+      toNumber(r.revenue_today) * margin -
+      toNumber(r.experiment_cost_today),
     0
   );
 
-  /* BIAYA YANG SUDAH TERPAKAI DI HARI LAIN */
+  const spentAll = dayRecords.reduce(
+    (sum, r) => sum + toNumber(r.experiment_cost_today),
+    0
+  );
 
+  // Biaya yang sudah terpakai di hari lain
   const spentOtherDays = dayRecords
-    .filter((x) => x.n !== day)
-    .reduce((sum, x) => sum + (Number(x.item.cost) || 0), 0);
+    .filter((r) => r.checkin_date !== todayStr)
+    .reduce((sum, r) => sum + toNumber(r.experiment_cost_today), 0);
 
   // Batas maksimal biaya yang boleh diisi hari ini
   const remainingBeforeToday = Math.max(
@@ -862,11 +1775,11 @@ export default function Daily() {
   );
 
   const costNow = finSaved
-    ? Number(finSaved.cost) || 0
+    ? toNumber(todayCheckin?.experiment_cost_today)
     : Number(fin.cost) || 0;
 
   const revenueNow = finSaved
-    ? Number(finSaved.revenue) || 0
+    ? toNumber(todayCheckin?.revenue_today)
     : Number(fin.revenue) || 0;
 
   // Sisa biaya eksperimen setelah biaya hari ini
@@ -876,30 +1789,6 @@ export default function Daily() {
 
   // Estimasi keuntungan hari ini
   const profitToday = revenueNow * margin - costNow;
-
-  /* SIMPAN CATATAN CHECKLIST */
-
-  const saveNote = (k, value) => {
-    update((p) => {
-      if (p.notes?.[k]) {
-        return p;
-      }
-
-      return {
-        ...p,
-        notes: {
-          ...(p.notes || {}),
-          [k]: value,
-        },
-      };
-    });
-
-    setSuccessPopup({
-      title: "Catatan berhasil disimpan!",
-      text: "Catatan perkembangan, kendala, dan perasaan hari ini sudah tersimpan dan tidak dapat diubah lagi.",
-      icon: "📋",
-    });
-  };
 
   /* VALIDASI KEUANGAN */
 
@@ -914,219 +1803,466 @@ export default function Daily() {
 
   /* SIMPAN CATATAN KEUANGAN */
 
-  const saveFin = () => {
-    if (!financeComplete || finSaved) return;
+  const saveFin = async () => {
+    if (
+      savingRef.current ||
+      !financeComplete ||
+      finSaved ||
+      !dayValid
+    ) {
+      return;
+    }
 
-    update((p) => {
-      if (p.finance?.[day]) {
-        return p;
+    savingRef.current = true;
+    setBusy(true);
+    setActionError("");
+
+    try {
+      const row = await persistCheckin("finance", {
+        revenue_today: Number(fin.revenue),
+        experiment_cost_today: Number(fin.cost),
+      });
+
+      mergeCheckin(row);
+
+      // Jika catatan hari ini juga sudah tersimpan -> pindah otomatis
+      if (isDayComplete(row)) {
+        autoAdvanceRef.current = true;
       }
 
-      return {
-        ...p,
-        finance: {
-          ...(p.finance || {}),
-          [day]: {
-            revenue: Number(fin.revenue),
-            cost: Number(fin.cost),
-          },
-        },
-      };
-    });
+      setSuccessPopup({
+        title: "Catatan keuangan tersimpan!",
+        text: "Data pemasukan dan biaya hari ini sudah tersimpan dan tidak dapat diubah lagi.",
+        icon: "💰",
+      });
+    } catch (err) {
+      console.error("Gagal menyimpan catatan keuangan:", err?.message);
 
-    setSuccessPopup({
-      title: "Catatan keuangan tersimpan!",
-      text: "Data pemasukan dan biaya hari ini sudah tersimpan dan tidak dapat diubah lagi.",
-      icon: "💰",
-    });
+      if (err?.existingRow) mergeCheckin(err.existingRow);
+
+      setActionError(
+        err?.message ||
+          "Catatan keuangan gagal disimpan. Silakan coba lagi."
+      );
+    } finally {
+      savingRef.current = false;
+      setBusy(false);
+    }
   };
 
-  const done = keys.filter((k) => Boolean(notes[k])).length;
+  /* =====================================
+     SELESAIKAN / HENTIKAN
+  ===================================== */
 
-  const progress = Math.round((day / 7) * 100);
+  async function selesai() {
+    if (!ready2 || day !== EXPERIMENT_DURATION_DAYS || busy) return;
 
-  function isiHariSebelumnya() {
-    if (previousDay < 1) return;
+    setBusy(true);
+    setActionError("");
 
-    setSkippedDay(null);
+    await finalizeExperiment(STATUS.COMPLETED, true);
 
-    update((p) => ({
-      ...p,
-      day: previousDay,
-    }));
+    setBusy(false);
   }
 
-  function lewatiHariSebelumnya() {
-    setSkippedDay(day);
+  async function hentikan() {
+    if (busy) return;
+
+    setBusy(true);
+    setActionError("");
+    setStop(false);
+
+    await finalizeExperiment(STATUS.STOPPED, false);
+
+    setBusy(false);
   }
 
-  /* SELESAIKAN EKSPERIMEN */
+  /* =====================================
+     KONTROL SIMULASI (HANYA PREVIEW)
+  ===================================== */
 
-  function selesai() {
-    if (!ready2 || day !== 7) return;
+  function setOffset(next) {
+    if (!exp) return;
 
-    setFinishPopup(true);
+    const value = Math.max(0, next);
+
+    sessionStorage.setItem(
+      `ep_preview_day_offset_${exp.id}`,
+      String(value)
+    );
+
+    autoAdvanceRef.current = false;
+    setViewOverride(null);
+    setMissedDismissed(false);
+    setPreviewOffset(value);
   }
 
-  /* HENTIKAN EKSPERIMEN */
+  function ulangiPreview() {
+    const fresh = buildDemoExperiment();
 
-  function hentikan() {
-    update((p) => ({
-      ...p,
-      status: "stopped",
-    }));
+    writePreviewExperiment(fresh);
+    writePreviewCheckins(fresh.id, []);
 
-    router.replace("/experiments/hasil");
+    window.location.href = `${window.location.pathname}?mode=preview&experimentId=${encodeURIComponent(
+      fresh.id
+    )}`;
   }
+
+  /* =====================================
+     LOADING DAN ERROR
+  ===================================== */
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="text-center">
+          <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-[#e8defb] border-t-[#684bd0]" />
+
+          <p className="mt-4 text-sm font-semibold text-[#684bd0]">
+            Menyiapkan Daily Check-in...
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !exp || !start) {
+    return (
+      <div className="flex min-h-screen items-center justify-center px-5">
+        <div className="w-full max-w-lg rounded-[22px] border border-[#f1dce5] bg-white p-6 text-center shadow-sm">
+          <div className="text-4xl">⚠️</div>
+
+          <h2 className="mt-3 text-lg font-extrabold text-[#19347c]">
+            Data belum tersedia
+          </h2>
+
+          <p className="mt-2 text-sm leading-relaxed text-[#7c849d]">
+            {error || "Data eksperimen tidak dapat dibaca."}
+          </p>
+
+          <div className="mt-5 flex flex-col justify-center gap-2 sm:flex-row">
+            <button
+              onClick={kembali}
+              className="rounded-full bg-[#684bd0] px-6 py-3 text-sm font-bold text-white"
+            >
+              Kembali
+            </button>
+
+            <button
+              onClick={bukaPreview}
+              className="rounded-full border border-[#d8cdf5] bg-white px-6 py-3 text-sm font-bold text-[#684bd0]"
+            >
+              Lihat contoh tampilan
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const experimentOver =
+    periodEnded || !ACTIVE_STATUSES.includes(exp.status);
+
+  /*
+   * Periode berakhir tetapi status gagal diperbarui di server:
+   * tampilkan pesan dan tombol coba lagi (bukan layar kosong).
+   */
+  if (experimentOver && actionError && !finishPopup) {
+    return (
+      <div className="flex min-h-screen items-center justify-center px-5">
+        <div className="w-full max-w-lg rounded-[22px] border border-[#f1dce5] bg-white p-6 text-center shadow-sm">
+          <div className="text-4xl">⚠️</div>
+
+          <h2 className="mt-3 text-lg font-extrabold text-[#19347c]">
+            Eksperimen belum bisa diselesaikan
+          </h2>
+
+          <p className="mt-2 text-sm leading-relaxed text-[#7c849d]">
+            {actionError}
+          </p>
+
+          <div className="mt-5 flex flex-col justify-center gap-2 sm:flex-row">
+            <button
+              onClick={kembali}
+              className="rounded-full border border-[#d8cdf5] bg-white px-6 py-3 text-sm font-bold text-[#684bd0]"
+            >
+              Kembali
+            </button>
+
+            <button
+              onClick={() => window.location.reload()}
+              className="rounded-full bg-[#684bd0] px-6 py-3 text-sm font-bold text-white"
+            >
+              Coba lagi
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  /*
+   * Periode berakhir / status sudah final: sedang dialihkan ke Hasil.
+   * Pengecualian: saat pop-up "eksperimen selesai" tampil, halaman
+   * tetap dirender supaya pop-up terlihat sebelum pindah ke Hasil.
+   */
+  if (experimentOver && !finishPopup) {
+    return null;
+  }
+
+  // Eksperimen dijadwalkan mulai di masa depan
+  if (day < 1) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#faf9ff] px-5">
+        <div className="w-full max-w-lg rounded-[22px] border border-[#f1dce5] bg-white p-6 text-center shadow-sm">
+          <div className="text-4xl">📅</div>
+
+          <h2 className="mt-3 text-lg font-extrabold text-[#19347c]">
+            Eksperimen belum dimulai
+          </h2>
+
+          <p className="mt-2 text-sm leading-relaxed text-[#7c849d]">
+            Hari pertama dimulai pada{" "}
+            {fmt(start, {
+              day: "numeric",
+              month: "long",
+              year: "numeric",
+            })}
+            . Check-in belum bisa diisi sebelum tanggal tersebut.
+          </p>
+
+          <button
+            onClick={kembali}
+            className="mt-5 rounded-full bg-[#684bd0] px-6 py-3 text-sm font-bold text-white"
+          >
+            Kembali
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  /* =====================================
+     TANGGAL EKSPERIMEN
+  ===================================== */
+
+  const end = addDays(start, EXPERIMENT_DURATION_DAYS - 1);
+
+  const ex = {
+    title: exp.title || "Eksperimen",
+    category:
+      (Array.isArray(exp.channels) && exp.channels.length > 0
+        ? exp.channels.join(" & ")
+        : null) || `Level ${exp.growth_level || 1}`,
+  };
+
+  /* =====================================
+     HARI YANG SEDANG DILIHAT
+     - viewDay === day  : hari ini (bisa diisi)
+     - viewDay <  day   : hari lalu (terkunci, hanya lihat)
+     - viewDay >  day   : hari berikutnya (terkunci sampai tanggalnya tiba)
+  ===================================== */
+
+  const viewDay = viewOverride ?? day;
+  const viewingToday = viewDay === day;
+  const viewUpcoming = viewDay > day;
+
+  const viewDate = addDays(start, viewDay - 1);
+  const viewDateStr = dateOnly(viewDate);
+
+  const viewRow = viewingToday
+    ? todayCheckin
+    : [...checkins].filter((c) => c.checkin_date === viewDateStr).pop() ||
+      null;
+
+  const viewNoteSaved = isNoteSaved(viewRow);
+  const viewFinSaved = isFinanceSaved(viewRow);
+
+  const viewInfo = extractDayInfo(exp.daily_plan, viewDay);
+
+  // Tugas yang tampil: untuk hari lalu yang sudah tersimpan, pakai yang tercatat
+  const savedSteps = viewNoteSaved ? parseJson(viewRow.steps_done, []) : [];
+
+  const savedStepTasks = Array.isArray(savedSteps)
+    ? savedSteps.map((s) => s?.task).filter(Boolean)
+    : [];
+
+  const viewTasks = viewingToday
+    ? tasks
+    : savedStepTasks.length > 0
+      ? savedStepTasks
+      : viewInfo?.tasks || [];
+
+  const viewTotalTasks = viewTasks.length;
+
+  const savedNoteView = buildSavedNote(viewRow);
+
+  const done = viewingToday
+    ? noteSaved
+      ? totalTasks
+      : liveDone
+    : viewNoteSaved
+      ? viewTotalTasks
+      : 0;
+
+  // Keuangan untuk tampilan
+  const shownRevenue = viewingToday
+    ? fin.revenue
+    : viewFinSaved
+      ? String(viewRow.revenue_today)
+      : "";
+
+  const shownCost = viewingToday
+    ? fin.cost
+    : viewFinSaved
+      ? String(viewRow.experiment_cost_today)
+      : "";
+
+  const finLocked = viewingToday ? Boolean(finSaved) : true;
+  const finBadge = viewingToday ? finSaved : viewFinSaved;
+
+  const panelSpent = viewingToday ? spentOtherDays + costNow : spentAll;
+
+  const panelRemaining = viewingToday
+    ? remainingAfterToday
+    : budgetLimit - spentAll;
+
+  const profitShown = viewingToday
+    ? profitToday
+    : viewFinSaved
+      ? toNumber(viewRow.revenue_today) * margin -
+        toNumber(viewRow.experiment_cost_today)
+      : 0;
+
+  const progress = Math.round((day / EXPERIMENT_DURATION_DAYS) * 100);
+
+  // Status tiap hari untuk deretan pilihan hari
+  function chipState(n) {
+    if (n > day) return "locked";
+
+    const row = checkins.find(
+      (c) => c.checkin_date === dateOnly(addDays(start, n - 1))
+    );
+
+    if (n === day) return isDayComplete(row) ? "done" : "today";
+    if (isDayComplete(row)) return "done";
+    if (row) return "partial";
+
+    return "missed";
+  }
+
+  const chipStyle = {
+    today: "border-[#704bd5] bg-[#704bd5] text-white",
+    done: "border-[#bfe7d3] bg-[#e2f7ef] text-[#16876b]",
+    partial: "border-[#f4e3bb] bg-[#fff5df] text-[#956b19]",
+    missed: "border-[#f5d2dc] bg-[#fff0f5] text-[#d83b80]",
+    locked: "border-[#e9e4f7] bg-[#f5f3fc] text-[#b2b0c6]",
+  };
+
+  const lastMissed = missedDays.length
+    ? missedDays[missedDays.length - 1]
+    : null;
+
+  /* =====================================
+     TAMPILAN
+  ===================================== */
 
   return (
     <>
       <main className="relative isolate min-h-screen w-full overflow-hidden rounded-[18px] bg-transparent pb-8 sm:rounded-[24px] sm:pb-10">
+        <div className="relative z-10 w-full space-y-6">
 
-        <BottomFlowers />
+          {/* MODE PREVIEW */}
 
-        <div className="pointer-events-none absolute inset-0 z-0 bg-gradient-to-br from-[#f8faff]/55 via-[#f7f7ff]/35 to-[#fff5fb]/45" />
+          {isPreview && (
+            <div className="rounded-[14px] border border-[#e6d9ff] bg-[#f3edff] px-4 py-3 text-[#684bd0]">
+              <div className="flex items-start gap-3">
+                <span className="text-lg">👀</span>
 
-        <div className="pointer-events-none absolute -left-28 top-[380px] z-0 h-72 w-72 rounded-full bg-[#e7d8ff]/35 blur-3xl" />
+                <div className="min-w-0">
+                  <p className="text-[11px] font-extrabold">
+                    Mode Preview Aktif
+                  </p>
 
-        <div className="pointer-events-none absolute -right-28 top-[650px] z-0 h-80 w-80 rounded-full bg-[#f9d5eb]/30 blur-3xl" />
+                  {previewNotice && (
+                    <p className="mt-1 text-[10px] font-bold leading-relaxed text-[#a36b31]">
+                      Menampilkan contoh karena: {previewNotice}
+                    </p>
+                  )}
 
-        <div className="relative z-10 mx-auto w-full max-w-[1500px] space-y-3 px-2 pt-2 sm:space-y-4 sm:px-3 sm:pt-3 md:px-5 md:pt-4">
-
-          {/* HERO BANNER */}
-
-          <section className="relative min-h-[270px] overflow-hidden rounded-[18px] border border-[#eee7f8]/80 bg-gradient-to-r from-[#f4efff]/90 via-[#f8f6ff]/85 to-[#fff0f6]/90 px-4 py-4 sm:min-h-[200px] sm:rounded-[22px] sm:px-5 sm:py-5 md:min-h-[185px] md:px-7">
-
-            <div className="pointer-events-none absolute -left-10 bottom-0 h-36 w-36 rounded-full bg-[#f4c8ed]/30 blur-2xl" />
-
-            {/* FOTO HERO */}
-            <img
-              src="/images/daily-checkin-banner.png"
-              alt=""
-              aria-hidden="true"
-              className="pointer-events-none absolute inset-y-0 right-0 z-0 h-full w-auto max-w-[70%] object-contain object-right opacity-50 sm:opacity-100"
-              style={{
-                WebkitMaskImage:
-                  "linear-gradient(to right, transparent 0%, rgba(0,0,0,.35) 15%, rgba(0,0,0,.8) 35%, black 60%, black 100%)",
-                maskImage:
-                  "linear-gradient(to right, transparent 0%, rgba(0,0,0,.35) 15%, rgba(0,0,0,.8) 35%, black 60%, black 100%)",
-              }}
-            />
-
-            <div className="pointer-events-none absolute inset-y-0 right-[32%] z-[3] w-[20%] bg-gradient-to-r from-[#f6f2ff]/35 via-[#f6f2ff]/15 to-transparent sm:right-[34%] sm:w-[20%] md:right-[35%] md:w-[18%]" />
-
-            {/* BUNGA KECIL DI DEPAN DAUN */}
-            <TopFlowers />
-
-            {/* ORNAMEN BOTANI */}
-
-            <svg
-              viewBox="0 0 250 190"
-              className="pointer-events-none absolute bottom-0 right-[15%] z-20 h-[110px] w-[145px] opacity-70 sm:right-[25%] sm:h-[145px] sm:w-[190px] sm:opacity-90 md:right-[29%] md:h-[180px] md:w-[235px]"
-              fill="none"
-              aria-hidden="true"
-            >
-
-              <g transform="translate(42 79) scale(.30)">
-                <ellipse cy="-18" rx="10" ry="18" fill="#EFA7D2" />
-                <ellipse
-                  cy="-18"
-                  rx="10"
-                  ry="18"
-                  fill="#F7C8E4"
-                  transform="rotate(72)"
-                />
-                <ellipse
-                  cy="-18"
-                  rx="10"
-                  ry="18"
-                  fill="#E99ACB"
-                  transform="rotate(144)"
-                />
-                <ellipse
-                  cy="-18"
-                  rx="10"
-                  ry="18"
-                  fill="#F7C8E4"
-                  transform="rotate(216)"
-                />
-                <ellipse
-                  cy="-18"
-                  rx="10"
-                  ry="18"
-                  fill="#EFA7D2"
-                  transform="rotate(288)"
-                />
-                <circle r="7" fill="#F5D16E" />
-              </g>
-
-              <g transform="translate(196 26) scale(.24)">
-                <ellipse cy="-18" rx="10" ry="18" fill="#C6B5EE" />
-                <ellipse
-                  cy="-18"
-                  rx="10"
-                  ry="18"
-                  fill="#E0D6F7"
-                  transform="rotate(72)"
-                />
-                <ellipse
-                  cy="-18"
-                  rx="10"
-                  ry="18"
-                  fill="#B5A1E6"
-                  transform="rotate(144)"
-                />
-                <ellipse
-                  cy="-18"
-                  rx="10"
-                  ry="18"
-                  fill="#E0D6F7"
-                  transform="rotate(216)"
-                />
-                <ellipse
-                  cy="-18"
-                  rx="10"
-                  ry="18"
-                  fill="#C6B5EE"
-                  transform="rotate(288)"
-                />
-                <circle r="7" fill="#F5D16E" />
-              </g>
-            </svg>
-
-            {/* TEKS HERO */}
-
-            <div className="relative z-30 w-full max-w-[270px] sm:max-w-[75%] md:max-w-[70%]">
-              <div className="mb-2 text-[9px] text-[#8990ad] sm:text-[10px]">
-                Home / My Experiment / Daily Check-in
+                  <p className="mt-1 text-[10px] leading-relaxed">
+                    Halaman ini memakai data contoh dan penyimpanan
+                    sementara di browser. Tidak ada data yang dikirim ke
+                    database. Gunakan tombol simulasi untuk mencoba
+                    pergantian hari kalender.
+                  </p>
+                </div>
               </div>
 
-              <span className="inline-block rounded-full bg-[#ffe5f0] px-3 py-1 text-[9px] font-extrabold text-[#d83b80] sm:text-[10px]">
-                EKSPERIMEN AKTIF
-              </span>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={previewOffset <= 0}
+                  onClick={() => setOffset(previewOffset - 1)}
+                  className="rounded-full border border-[#d8cdf5] bg-white px-3 py-1.5 text-[10px] font-bold text-[#684bd0] disabled:opacity-40"
+                >
+                  ‹ Hari sebelumnya
+                </button>
 
-              <h1 className="mt-3 text-[23px] font-extrabold leading-tight text-[#19347e] sm:text-[27px] md:text-[30px]">
-                Daily Check-in
-              </h1>
+                <button
+                  type="button"
+                  disabled={previewOffset >= EXPERIMENT_DURATION_DAYS - 1}
+                  onClick={() => setOffset(previewOffset + 1)}
+                  className="rounded-full border border-[#d8cdf5] bg-white px-3 py-1.5 text-[10px] font-bold text-[#684bd0] disabled:opacity-40"
+                >
+                  Hari berikutnya ›
+                </button>
 
-              <p className="mt-1 max-w-[590px] text-[10px] leading-relaxed text-[#75809f] sm:text-[11px] md:text-[12px]">
-                Centang tugas yang sudah kamu kerjakan, lalu catat
-                perkembangannya. Catatan kecil setiap hari membantu
-                kamu melihat apa yang berhasil.
-              </p>
+                <button
+                  type="button"
+                  onClick={() => setOffset(EXPERIMENT_DURATION_DAYS)}
+                  className="rounded-full border border-[#d8cdf5] bg-white px-3 py-1.5 text-[10px] font-bold text-[#684bd0]"
+                >
+                  Simulasi periode berakhir
+                </button>
+
+                <button
+                  type="button"
+                  onClick={ulangiPreview}
+                  className="rounded-full bg-[#684bd0] px-3 py-1.5 text-[10px] font-bold text-white"
+                >
+                  Ulangi preview
+                </button>
+              </div>
             </div>
+          )}
 
-            {/* TANGGAL */}
+                    {/* HEADER */}
 
-            <div className="relative z-30 mt-4 inline-flex max-w-full items-center rounded-full border border-[#eee8f8] bg-white/95 px-3 py-2 text-[9px] font-bold text-[#243c83] shadow-sm sm:absolute sm:right-3 sm:top-3 sm:mt-0 sm:text-[10px] md:right-5 md:top-5 md:text-[11px]">
+          <header>
+            <p className="mb-2 text-sm font-semibold text-pink-ink">
+              EKSPERIMEN AKTIF
+            </p>
+
+            <h1 className="text-2xl font-bold tracking-tight text-ink-title md:text-3xl">
+              Daily Check-in
+            </h1>
+
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-ink-muted">
+              Centang tugas yang sudah kamu kerjakan, lalu catat
+              perkembangannya. Catatan kecil setiap hari membantu kamu
+              melihat apa yang berhasil.
+            </p>
+
+            <div className="mt-3 inline-flex max-w-full items-center rounded-full border border-lav-line bg-white px-3 py-2 text-xs font-bold text-ink-title shadow-sm">
               📅{" "}
-              {fmt(cur, {
+              {fmt(viewDate, {
                 day: "numeric",
                 month: "long",
                 year: "numeric",
               })}
             </div>
-          </section>
+          </header>
 
           {/* RINGKASAN EKSPERIMEN */}
 
@@ -1164,7 +2300,7 @@ export default function Daily() {
                   <span className="hidden sm:inline">|</span>
 
                   <span className="font-semibold text-[#263b7c]">
-                    Total tambahan omzet Rp {formatRupiah(total)}
+                    Total omzet Rp {formatRupiah(total)}
                   </span>
 
                   <span className="hidden sm:inline">|</span>
@@ -1193,7 +2329,83 @@ export default function Daily() {
             </div>
           </section>
 
-          {/* FOKUS HARI INI */}
+          {/* PILIHAN HARI (LIHAT CATATAN HARI SEBELUMNYA) */}
+
+          <section className="flex flex-wrap items-center gap-2 rounded-[16px] border border-[#ece5fa] bg-white/80 px-3 py-2.5 sm:px-4">
+            <span className="mr-1 text-[10px] font-bold text-[#6655a7] sm:text-[11px]">
+              Lihat hari:
+            </span>
+
+            {Array.from(
+              { length: EXPERIMENT_DURATION_DAYS },
+              (_, i) => i + 1
+            ).map((n) => {
+              const state = chipState(n);
+              const selected = n === viewDay;
+
+              return (
+                <button
+                  key={n}
+                  type="button"
+                  disabled={state === "locked" && n !== viewDay}
+                  onClick={() => setViewOverride(n === day ? null : n)}
+                  aria-label={`Lihat hari ke-${n}`}
+                  className={`rounded-full border px-3 py-1.5 text-[10px] font-bold transition sm:text-[11px] ${
+                    chipStyle[state]
+                  } ${
+                    selected ? "ring-2 ring-[#8b6ce0]/60" : ""
+                  } ${
+                    state === "locked" && n !== viewDay
+                      ? "cursor-not-allowed"
+                      : "hover:brightness-95"
+                  }`}
+                >
+                  H{n}
+                  {state === "done" ? " ✓" : ""}
+                </button>
+              );
+            })}
+          </section>
+
+          {/* PEMBERITAHUAN SAAT MELIHAT HARI LAIN */}
+
+          {!viewingToday && (
+            <section className="flex flex-col gap-3 rounded-[16px] border border-[#e6d9ff] bg-[#f3edff] px-3 py-3 sm:px-4 md:flex-row md:items-center md:justify-between">
+              <div className="flex min-w-0 items-start gap-3">
+                <span className="shrink-0 text-xl">
+                  {viewUpcoming ? "🔒" : "👁️"}
+                </span>
+
+                <div className="min-w-0">
+                  <p className="text-[12px] font-extrabold text-[#5a3fc0]">
+                    {viewUpcoming
+                      ? `Hari ke-${viewDay} terbuka pada ${fmt(viewDate, {
+                          day: "numeric",
+                          month: "long",
+                          year: "numeric",
+                        })}.`
+                      : `Kamu sedang melihat catatan hari ke-${viewDay}.`}
+                  </p>
+
+                  <p className="text-[10px] leading-relaxed text-[#6655a7] sm:text-[11px]">
+                    {viewUpcoming
+                      ? "Hari berikutnya tidak bisa diisi lebih awal. Hasil kerjamu hari ini sudah tersimpan dengan aman."
+                      : "Catatan hari yang sudah lewat terkunci dan tidak bisa diubah atau diisi ulang."}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setViewOverride(null)}
+                className="w-full rounded-full bg-gradient-to-r from-[#7045d5] to-[#5632c4] px-4 py-2.5 text-[10px] font-bold text-white shadow-md transition hover:brightness-110 sm:w-auto sm:px-5 sm:text-[11px]"
+              >
+                Kembali ke hari ini
+              </button>
+            </section>
+          )}
+
+          {/* FOKUS HARI */}
 
           <section className="flex items-start gap-3 rounded-[16px] border border-[#ece5fa] bg-[#f0eaff] px-3 py-3 sm:items-center sm:px-4">
             <span className="shrink-0 text-[21px] text-[#6848cf]">
@@ -1202,27 +2414,28 @@ export default function Daily() {
 
             <p className="min-w-0 text-[10px] leading-relaxed text-[#6655a7] sm:text-[11px] md:text-[12px]">
               <b className="mr-2 text-[#6040c4]">
-                Fokus hari ini
+                {viewingToday ? "Fokus hari ini" : `Fokus hari ke-${viewDay}`}
               </b>
-              H{day}: {d.focus}
+              H{viewDay}:{" "}
+              {viewInfo?.focus || "Tugas hari ini belum tersedia."}
             </p>
           </section>
 
-          {/* PERINGATAN HARI SEBELUMNYA */}
+          {/* PERINGATAN HARI TERLEWATKAN (hari lalu terkunci) */}
 
-          {previousIncomplete && skippedDay !== day && (
+          {viewingToday && missedDays.length > 0 && !missedDismissed && (
             <section className="flex flex-col gap-3 rounded-[16px] border border-[#f4e3bb] bg-[#fff5df] px-3 py-3 sm:px-4 sm:py-3 md:flex-row md:items-center md:justify-between">
               <div className="flex min-w-0 items-start gap-3">
                 <span className="shrink-0 text-xl">⚠️</span>
 
                 <div className="min-w-0">
                   <p className="text-[12px] font-extrabold text-[#956b19]">
-                    Hari ke-{previousDay} belum dicatat.
+                    Hari ke-{missedDays.join(", ")} terlewatkan.
                   </p>
 
                   <p className="text-[10px] leading-relaxed text-[#9a8251] sm:text-[11px]">
-                    Kamu masih bisa mengisinya sekarang, atau lewati
-                    dan lanjut ke hari ini.
+                    Hari yang terlewat tidak bisa diisi ulang dan tidak
+                    dihitung selesai. Lanjutkan dengan tugas hari ini.
                   </p>
                 </div>
               </div>
@@ -1230,18 +2443,18 @@ export default function Daily() {
               <div className="flex w-full flex-col gap-2 sm:flex-row md:w-auto">
                 <button
                   type="button"
-                  onClick={isiHariSebelumnya}
+                  onClick={() => setViewOverride(lastMissed)}
                   className="w-full rounded-full bg-gradient-to-r from-[#7045d5] to-[#5632c4] px-4 py-2.5 text-[10px] font-bold text-white shadow-md transition hover:brightness-110 sm:w-auto sm:px-5 sm:text-[11px]"
                 >
-                  Isi catatan hari ke-{previousDay}
+                  Lihat hari ke-{lastMissed}
                 </button>
 
                 <button
                   type="button"
-                  onClick={lewatiHariSebelumnya}
+                  onClick={() => setMissedDismissed(true)}
                   className="w-full rounded-full border border-[#eee4ce] bg-white px-4 py-2.5 text-[10px] font-bold text-[#9b7a37] shadow-sm transition hover:bg-[#fffaf0] sm:w-auto sm:px-5 sm:text-[11px]"
                 >
-                  Lewati
+                  Mengerti
                 </button>
               </div>
             </section>
@@ -1249,7 +2462,7 @@ export default function Daily() {
 
           {/* PERINGATAN HARI TERAKHIR */}
 
-          {day === 7 && (
+          {viewingToday && day === EXPERIMENT_DURATION_DAYS && (
             <section className="flex items-start gap-3 rounded-[16px] border border-[#f4e3bb] bg-[#fff5df] p-3 sm:items-center sm:p-4">
               <span className="shrink-0 text-xl">⚠️</span>
 
@@ -1266,38 +2479,81 @@ export default function Daily() {
             </section>
           )}
 
-          {/* CHECKLIST HARI INI */}
+          {/* ERROR AKSI */}
+
+          {actionError && (
+            <div className="rounded-[12px] border border-[#f3d5df] bg-[#fff1f5] p-3 text-[11px] text-[#c13c70]">
+              {actionError}
+            </div>
+          )}
+
+          {/* CHECKLIST */}
 
           <section className={`${card} space-y-3 p-3 sm:p-4 md:p-5`}>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
               <div className="min-w-0">
                 <h2 className="text-[15px] font-extrabold text-[#19347e] sm:text-[16px]">
-                  Checklist hari ini
+                  {viewingToday
+                    ? "Checklist hari ini"
+                    : `Checklist hari ke-${viewDay}`}
                 </h2>
 
                 <p className="mt-1 text-[10px] leading-relaxed text-[#8991aa] sm:text-[11px]">
-                  Isi seluruh catatan untuk menyelesaikan setiap tugas.
-                  Semua kolom wajib dilengkapi.
+                  {viewingToday
+                    ? `Centang ${allTasksLabel(totalTasks).replace(
+                        " di atas",
+                        ""
+                      )}, lalu isi satu catatan untuk hari ini. Semua kolom wajib dilengkapi.`
+                    : "Tampilan hanya-baca. Catatan yang sudah disimpan tidak dapat diubah."}
                 </p>
               </div>
 
               <span className="w-fit shrink-0 rounded-full bg-[#e2f7ef] px-3 py-1 text-[10px] font-extrabold text-[#16876b]">
-                {done} dari 3 selesai
+                {done} dari {viewTotalTasks} selesai
               </span>
             </div>
 
-            <div className="space-y-3">
-              {(d.tasks || []).map((task, index) => (
-                <Task
-                  key={keys[index]}
-                  k={keys[index]}
-                  label={task}
-                  hint={d.hint || []}
-                  saved={notes[keys[index]]}
-                  onSave={saveNote}
+            {viewTotalTasks === 0 ? (
+              <div className="rounded-[15px] border border-[#ece9f8] bg-white p-4 text-[11px] text-[#8991aa]">
+                Tugas untuk hari ini belum tersedia pada rencana harian
+                strategi yang dipilih.
+              </div>
+            ) : viewingToday ? (
+              <ChecklistForm
+                key={`${viewDateStr}-${viewTotalTasks}`}
+                tasks={viewTasks}
+                hint={hint}
+                saved={savedNoteView}
+                busy={busy}
+                onSave={saveNote}
+                onProgress={setLiveDone}
+              />
+            ) : viewNoteSaved ? (
+              <ChecklistForm
+                key={`view-${viewDateStr}`}
+                tasks={viewTasks}
+                saved={savedNoteView}
+              />
+            ) : (
+              <>
+                <LockedTasks
+                  tasks={viewTasks}
+                  label={viewUpcoming ? "Belum dibuka" : "Terlewatkan"}
+                  badgeClass={
+                    viewUpcoming
+                      ? "bg-[#f0eaff] text-[#6848cf]"
+                      : "bg-[#fff5df] text-[#956b19]"
+                  }
                 />
-              ))}
-            </div>
+
+                {!viewUpcoming && (
+                  <p className="text-[10px] leading-relaxed text-[#9a8251]">
+                    Tidak ada catatan pada hari ini dan tidak bisa
+                    diisi ulang.
+                  </p>
+                )}
+              </>
+            )}
           </section>
 
           {/* CATATAN KEUANGAN */}
@@ -1306,16 +2562,19 @@ export default function Daily() {
             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
               <div className="min-w-0">
                 <h2 className="text-[15px] font-extrabold text-[#19347e] sm:text-[16px]">
-                  Catatan keuangan hari ini
+                  {viewingToday
+                    ? "Catatan keuangan hari ini"
+                    : `Catatan keuangan hari ke-${viewDay}`}
                 </h2>
 
                 <p className="mt-1 text-[10px] leading-relaxed text-[#8991aa] sm:text-[11px]">
-                  Isi revenue untuk melihat estimasi keuntungan, dan
-                  isi biaya untuk memantau sisa biaya eksperimen.
+                  {viewingToday
+                    ? "Isi revenue untuk melihat estimasi keuntungan, dan isi biaya untuk memantau sisa biaya eksperimen."
+                    : "Tampilan hanya-baca. Catatan yang sudah disimpan tidak dapat diubah."}
                 </p>
               </div>
 
-              {finSaved && (
+              {finBadge && (
                 <span className="w-fit shrink-0 rounded-full bg-[#e2f7ef] px-3 py-1 text-[10px] font-bold text-[#16876b]">
                   Tersimpan
                 </span>
@@ -1338,17 +2597,19 @@ export default function Daily() {
               <div className="rounded-[14px] border border-[#e9e2f8] bg-[#faf8ff] p-3">
                 <p className="text-[10px] text-[#8990aa]">
                   Terpakai
-                  {finSaved || costNow > 0 ? " (termasuk hari ini)" : ""}
+                  {viewingToday && (finSaved || costNow > 0)
+                    ? " (termasuk hari ini)"
+                    : ""}
                 </p>
 
                 <p className="mt-1 text-[13px] font-extrabold text-[#4932a0]">
-                  Rp {formatRupiah(spentOtherDays + costNow)}
+                  Rp {formatRupiah(panelSpent)}
                 </p>
               </div>
 
               <div
                 className={`rounded-[14px] border p-3 ${
-                  remainingAfterToday < 0
+                  panelRemaining < 0
                     ? "border-[#f5d2dc] bg-[#fff0f5]"
                     : "border-[#d5eee2] bg-[#effaf4]"
                 }`}
@@ -1359,12 +2620,12 @@ export default function Daily() {
 
                 <p
                   className={`mt-1 text-[13px] font-extrabold ${
-                    remainingAfterToday < 0
+                    panelRemaining < 0
                       ? "text-[#d83b80]"
                       : "text-[#16866a]"
                   }`}
                 >
-                  {formatRupiahSigned(remainingAfterToday)}
+                  {formatRupiahSigned(panelRemaining)}
                 </p>
               </div>
             </div>
@@ -1372,8 +2633,10 @@ export default function Daily() {
             <div className="mt-4 grid min-w-0 gap-3 sm:gap-4 md:grid-cols-2">
               <div className="min-w-0">
                 <label className="text-[11px] font-bold text-[#243b7d] sm:text-[12px]">
-                  Revenue yang masuk hari ini{" "}
-                  <span className="text-[#dc4383]">*</span>
+                  {viewingToday
+                    ? "Total omzet usaha hari ini"
+                    : "Total omzet usaha"}{" "}
+                  {viewingToday && <span className="text-[#dc4383]">*</span>}
                 </label>
 
                 <div className="mt-2 flex min-w-0 items-center rounded-xl border border-[#e9e4f7] bg-[#f5f3fc] px-3">
@@ -1386,9 +2649,12 @@ export default function Daily() {
                     className="w-full min-w-0 border-0 bg-transparent px-2 py-3 text-[13px] font-semibold text-[#263b7c] outline-none placeholder:font-normal placeholder:text-[#9ba2bd] disabled:opacity-70"
                     type="text"
                     inputMode="numeric"
-                    placeholder="Masukkan revenue"
-                    disabled={Boolean(finSaved)}
-                    value={formatInputRupiah(fin.revenue)}
+                    placeholder={
+                      viewingToday ? "Masukkan revenue" : "Tidak ada catatan"
+                    }
+                    disabled={finLocked}
+                    readOnly={finLocked}
+                    value={formatInputRupiah(shownRevenue)}
                     onChange={(e) =>
                       setFin((old) => ({
                         ...old,
@@ -1399,15 +2665,16 @@ export default function Daily() {
                 </div>
 
                 <p className="mt-2 text-[10px] leading-relaxed text-[#8991aa]">
-                  Estimasi keuntungan hari ini:{" "}
+                  Estimasi keuntungan{" "}
+                  {viewingToday ? "hari ini" : `hari ke-${viewDay}`}:{" "}
                   <b
                     className={
-                      profitToday < 0
+                      profitShown < 0
                         ? "text-[#d83b80]"
                         : "text-[#16866a]"
                     }
                   >
-                    {formatRupiahSigned(profitToday)}
+                    {formatRupiahSigned(profitShown)}
                   </b>
                   {margin > 0 && (
                     <span>
@@ -1420,13 +2687,13 @@ export default function Daily() {
 
               <div className="min-w-0">
                 <label className="text-[11px] font-bold text-[#243b7d] sm:text-[12px]">
-                  Biaya hari ini{" "}
-                  <span className="text-[#dc4383]">*</span>
+                  {viewingToday ? "Biaya hari ini" : "Biaya eksperimen"}{" "}
+                  {viewingToday && <span className="text-[#dc4383]">*</span>}
                 </label>
 
                 <div
                   className={`mt-2 flex min-w-0 items-center rounded-xl border bg-[#f5f3fc] px-3 ${
-                    costExceeds
+                    viewingToday && costExceeds
                       ? "border-[#e98aa8]"
                       : "border-[#e9e4f7]"
                   }`}
@@ -1440,9 +2707,12 @@ export default function Daily() {
                     className="w-full min-w-0 border-0 bg-transparent px-2 py-3 text-[13px] font-semibold text-[#263b7c] outline-none placeholder:font-normal placeholder:text-[#9ba2bd] disabled:opacity-70"
                     type="text"
                     inputMode="numeric"
-                    placeholder="Masukkan biaya"
-                    disabled={Boolean(finSaved)}
-                    value={formatInputRupiah(fin.cost)}
+                    placeholder={
+                      viewingToday ? "Masukkan biaya" : "Tidak ada catatan"
+                    }
+                    disabled={finLocked}
+                    readOnly={finLocked}
+                    value={formatInputRupiah(shownCost)}
                     onChange={(e) =>
                       setFin((old) => ({
                         ...old,
@@ -1452,66 +2722,73 @@ export default function Daily() {
                   />
                 </div>
 
-                {costExceeds ? (
-                  <p className="mt-2 text-[10px] leading-relaxed text-[#d83b80]">
-                    Biaya melebihi sisa biaya eksperimen. Maksimal hari
-                    ini Rp {formatRupiah(remainingBeforeToday)}.
-                  </p>
-                ) : (
-                  <p className="mt-2 text-[10px] leading-relaxed text-[#8991aa]">
-                    Maksimal biaya hari ini Rp{" "}
-                    {formatRupiah(remainingBeforeToday)}.
-                  </p>
-                )}
+                {viewingToday &&
+                  (costExceeds ? (
+                    <p className="mt-2 text-[10px] leading-relaxed text-[#d83b80]">
+                      Biaya melebihi sisa biaya eksperimen. Maksimal hari
+                      ini Rp {formatRupiah(remainingBeforeToday)}.
+                    </p>
+                  ) : (
+                    <p className="mt-2 text-[10px] leading-relaxed text-[#8991aa]">
+                      Maksimal biaya hari ini Rp{" "}
+                      {formatRupiah(remainingBeforeToday)}.
+                    </p>
+                  ))}
               </div>
             </div>
 
-            <p className="mt-3 text-[10px] leading-relaxed text-[#9291a5]">
-              * Revenue dan biaya wajib diisi. Jika tidak ada pemasukan
-              atau biaya, masukkan angka 0.
-            </p>
+            {viewingToday && (
+              <>
+                <p className="mt-3 text-[10px] leading-relaxed text-[#9291a5]">
+                  * Omzet dan biaya wajib diisi. Isi total seluruh penjualan hari ini, bukan hanya dari eksperimen. Jika tidak ada pemasukan
+                  atau biaya, masukkan angka 0.
+                </p>
 
-            <button
-              type="button"
-              className="mt-4 w-full rounded-full bg-gradient-to-r from-[#7045d5] to-[#5632c4] px-5 py-2.5 text-[11px] font-extrabold text-white shadow-[0_4px_12px_rgba(95,58,190,0.2)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto sm:px-6"
-              disabled={Boolean(finSaved) || !financeComplete}
-              onClick={saveFin}
-            >
-              {finSaved
-                ? "✓ Catatan keuangan tersimpan"
-                : "▣ Simpan catatan keuangan"}
-            </button>
+                <button
+                  type="button"
+                  className="mt-4 w-full rounded-full bg-gradient-to-r from-[#7045d5] to-[#5632c4] px-5 py-2.5 text-[11px] font-extrabold text-white shadow-[0_4px_12px_rgba(95,58,190,0.2)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto sm:px-6"
+                  disabled={Boolean(finSaved) || !financeComplete || busy}
+                  onClick={saveFin}
+                >
+                  {finSaved
+                    ? "✓ Catatan keuangan tersimpan"
+                    : "▣ Simpan catatan keuangan"}
+                </button>
+              </>
+            )}
           </section>
 
-          {/* TOMBOL AKHIR */}
+          {/* TOMBOL AKHIR (hanya saat melihat hari ini) */}
 
-          {day === 7 ? (
-            <div>
+          {viewingToday &&
+            (day === EXPERIMENT_DURATION_DAYS ? (
+              <div>
+                <button
+                  type="button"
+                  className="w-full rounded-full bg-gradient-to-r from-[#7045d5] to-[#5632c4] px-4 py-3.5 text-[12px] font-extrabold text-white shadow-lg transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 sm:py-4 sm:text-[14px]"
+                  disabled={!ready2 || busy}
+                  onClick={selesai}
+                >
+                  Selesaikan eksperimen ›
+                </button>
+
+                <p className="mt-3 text-[10px] leading-relaxed text-[#9291a5] sm:text-[11px]">
+                  Pastikan seluruh catatan hari ketujuh sudah tersimpan
+                  sebelum melihat hasil eksperimen.
+                </p>
+              </div>
+            ) : (
               <button
                 type="button"
-                className="w-full rounded-full bg-gradient-to-r from-[#7045d5] to-[#5632c4] px-4 py-3.5 text-[12px] font-extrabold text-white shadow-lg transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 sm:py-4 sm:text-[14px]"
-                disabled={!ready2}
-                onClick={selesai}
+                className="text-[11px] font-extrabold text-[#d64b6d] transition hover:text-[#b82e55] sm:text-[12px]"
+                onClick={() => setStop(true)}
               >
-                Selesaikan eksperimen ›
+                Hentikan eksperimen
               </button>
-
-              <p className="mt-3 text-[10px] leading-relaxed text-[#9291a5] sm:text-[11px]">
-                Pastikan seluruh catatan hari ketujuh sudah tersimpan
-                sebelum melihat hasil eksperimen.
-              </p>
-            </div>
-          ) : (
-            <button
-              type="button"
-              className="text-[11px] font-extrabold text-[#d64b6d] transition hover:text-[#b82e55] sm:text-[12px]"
-              onClick={() => setStop(true)}
-            >
-              Hentikan eksperimen
-            </button>
-          )}
+            ))}
         </div>
       </main>
+
       {/* POP-UP CATATAN BERHASIL */}
 
       {successPopup && (
@@ -1543,7 +2820,8 @@ export default function Daily() {
           <button
             type="button"
             onClick={hentikan}
-            className="w-full rounded-full bg-gradient-to-r from-[#7045d5] to-[#5632c4] px-6 py-3 text-[12px] font-bold text-white shadow-md sm:w-auto"
+            disabled={busy}
+            className="w-full rounded-full bg-gradient-to-r from-[#7045d5] to-[#5632c4] px-6 py-3 text-[12px] font-bold text-white shadow-md disabled:opacity-60 sm:w-auto"
           >
             Ya, hentikan
           </button>
