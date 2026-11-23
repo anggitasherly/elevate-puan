@@ -65,32 +65,26 @@ function SparkleDecor() {
 
 export default function DashboardLayout({ children, userName = "" }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
-  const pathname = usePathname();
-  const router = useRouter();
+const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+const pathname = usePathname();
+const router = useRouter();
 
-  // Nama pengguna yang login (dikirim dari app/(app)/layout.js).
-  // Kalau kosong, tampil "Pengguna" supaya header tidak kosong.
-  const displayName = userName.trim() || "Pengguna";
-  const initial = displayName.charAt(0).toUpperCase();
+async function handleSignOut() {
+  setProfileMenuOpen(false);
+  await signOut(router);
+}
 
-  async function handleSignOut() {
-    setProfileMenuOpen(false);
-    await signOut(router);
-  }
+const pageTitle = getPageTitle(pathname);
 
-  const pageTitle = getPageTitle(pathname);
+const [lastPathname, setLastPathname] = useState(pathname);
 
-  const [lastPathname, setLastPathname] = useState(pathname);
-
-  if (lastPathname !== pathname) {
-    setLastPathname(pathname);
-    setMobileMenuOpen(false);
-    setProfileMenuOpen(false);
-  }
-
+if (pathname !== lastPathname) {
+  setLastPathname(pathname);
+  setMobileMenuOpen(false);
+  setProfileMenuOpen(false);
+}
   return (
-    <div className="min-h-screen bg-page text-ink md:flex">
+    <div className="min-h-screen bg-transparent text-ink md:flex">
       {/* Overlay mobile */}
       {mobileMenuOpen && (
         <button

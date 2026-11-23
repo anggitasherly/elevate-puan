@@ -99,7 +99,7 @@ export default function Topbar() {
               </p>
 
               <p className="mt-1 text-[13px] text-[#77718f]">
-                Dewi's Sweet Kitchen
+                Dewi&apos;s Sweet Kitchen
               </p>
             </div>
 

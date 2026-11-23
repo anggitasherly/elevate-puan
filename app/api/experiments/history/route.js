@@ -1,13 +1,14 @@
-import { createSupabaseServerClient } from "@/lib/supabase/server";
 
-// Memastikan data personal tidak disimpan oleh cache. -> route ini dijalankan setiap reqquest dan tidak di cache. penting karena datanya personal per user
+import { getAuthenticatedContext } from "@/lib/server/auth";
+
+// Data History bersifat personal dan tidak boleh di-cache.
 export const dynamic = "force-dynamic";
 
-// Menyamakan status database agar mudah digunakan oleh UI.
+// Menyamakan status database agar mudah digunakan UI.
 function normalizeStatus(status) {
-  const value = String(status ?? "").trim().toLowerCase(); //Mengubah status jadi string, menghapus spasi, dan menjadikannya huruf kecil. Kalau null/undefined jadi string kosong.
+  const value = String(status ?? "").trim().toLowerCase();
 
-  const statusMap = { //jadi beberapa variasi kata yang digunakan itu outputnya ttp sama ongoing gt looo 
+  const statusMap = {
     active: "ongoing",
     ongoing: "ongoing",
     in_progress: "ongoing",
@@ -24,10 +25,10 @@ function normalizeStatus(status) {
     draft: "draft",
   };
 
-  return statusMap[value] ?? (value || "unknown"); //Kalau ada di map, pakai hasil map. Kalau tidak, pakai nilai aslinya. Kalau kosong, jadi "unknown".
+  return statusMap[value] ?? (value || "unknown");
 }
 
-// Membuat response JSON tanpa menyimpan data ke cache.
+// Response JSON tanpa menyimpan data ke cache.
 function jsonResponse(data, status = 200) {
   return Response.json(data, {
     status,
@@ -53,28 +54,13 @@ function emptyHistoryResponse() {
   });
 }
 
-export async function GET() { //fungsi utama GET 
+export async function GET(request) {
   try {
-    // 1. Buat client dari cookie login dan verifikasi identitas pengguna.
-    const supabase = await createSupabaseServerClient();
+    // 1. Verifikasi user dan dapatkan Supabase client.
+    // Mendukung Bearer Token maupun cookie session.
+    const { supabase, user } = await getAuthenticatedContext(request);
 
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-
-    if (authError || !user) {
-      return jsonResponse(
-        {
-          success: false,
-          message: "Silakan login terlebih dahulu.",
-        },
-        401
-      );
-    }
-
-    // 2. Ambil seluruh usaha milik pengguna yang sedang login.
-    // user.id berasal dari Supabase Auth, bukan dari frontend.
+    // 2. Ambil seluruh usaha milik pengguna yang login.
     const { data: businesses, error: businessError } = await supabase
       .from("businesses")
       .select("id, name, category")
@@ -92,44 +78,45 @@ export async function GET() { //fungsi utama GET
       );
     }
 
-    const businessIds = (businesses ?? []).map((business) => business.id);
+    const businessIds = (businesses ?? []).map(
+      (business) => business.id
+    );
 
-    // Jika pengguna belum memiliki usaha, tidak ada eksperimen yang perlu diambil.
+    // Jika pengguna belum memiliki usaha.
     if (businessIds.length === 0) {
       return emptyHistoryResponse();
     }
 
-    // 5. Ambil eksperimen yang terhubung dengan usaha milik pengguna.
-    // RLS pada tabel experiments tetap melakukan pemeriksaan kepemilikan.
-    
-    const { data: experimentRows, error: experimentError } = await supabase
-      .from("experiments")
-      .select(`
-        id,
-        business_id,
-        proposal_id,
-        previous_experiment_id,
-        title,
-        metric_name,
-        baseline_value,
-        target_value,
-        budget_planned,
-        growth_level,
-        start_date,
-        end_date,
-        status,
-        created_at,
-        description,
-        hypothesis,
-        solution_proposals (
+    // 3. Ambil eksperimen milik usaha pengguna.
+    const { data: experimentRows, error: experimentError } =
+      await supabase
+        .from("experiments")
+        .select(`
+          id,
+          business_id,
+          proposal_id,
+          previous_experiment_id,
           title,
-          problem_addressed,
+          metric_name,
+          baseline_value,
+          target_value,
+          budget_planned,
+          growth_level,
+          start_date,
+          end_date,
+          status,
+          created_at,
           description,
-          rationale
-        )
-      `)
-      .in("business_id", businessIds)
-      .order("created_at", { ascending: false });
+          hypothesis,
+          solution_proposals (
+            title,
+            problem_addressed,
+            description,
+            rationale
+          )
+        `)
+        .in("business_id", businessIds)
+        .order("created_at", { ascending: false });
 
     if (experimentError) {
       console.error("History experiment query error:", experimentError);
@@ -156,7 +143,7 @@ export async function GET() { //fungsi utama GET
       (experiment) => experiment.id
     );
 
-    // 6. Ambil jumlah check-in dan hasil evaluasi setiap eksperimen.
+    // 4. Ambil aktivitas check-in dan hasil evaluasi.
     const [checkinsResult, resultsResult] = await Promise.all([
       supabase
         .from("experiment_checkins")
@@ -215,12 +202,15 @@ export async function GET() { //fungsi utama GET
       );
     }
 
-    // 7. Siapkan lookup data usaha berdasarkan business_id.
+    // 5. Siapkan lookup data usaha.
     const businessById = new Map(
-      (businesses ?? []).map((business) => [business.id, business])
+      (businesses ?? []).map((business) => [
+        business.id,
+        business,
+      ])
     );
 
-    // Hitung jumlah check-in untuk setiap eksperimen.
+    // Hitung jumlah check-in setiap eksperimen.
     const checkinCountByExperiment = new Map();
 
     for (const checkin of checkinsResult.data ?? []) {
@@ -233,7 +223,7 @@ export async function GET() { //fungsi utama GET
       );
     }
 
-    // Ambil hasil evaluasi terbaru untuk setiap eksperimen.
+    // Ambil hasil evaluasi terbaru setiap eksperimen.
     const latestResultByExperiment = new Map();
 
     for (const result of resultsResult.data ?? []) {
@@ -242,9 +232,10 @@ export async function GET() { //fungsi utama GET
       }
     }
 
-    // 8. Gabungkan data eksperimen, usaha, check-in, dan hasil evaluasi.
+    // 6. Gabungkan data eksperimen, usaha, check-in, dan hasil.
     const experiments = visibleExperiments.map((experiment) => {
       const business = businessById.get(experiment.business_id);
+
       const result =
         latestResultByExperiment.get(experiment.id) ?? null;
 
@@ -321,7 +312,7 @@ export async function GET() { //fungsi utama GET
       };
     });
 
-    // 9. Hitung ringkasan berdasarkan eksperimen yang ditampilkan.
+    // 7. Hitung ringkasan berdasarkan eksperimen yang ditampilkan.
     const summary = {
       total: experiments.length,
       completed: experiments.filter(
@@ -335,7 +326,7 @@ export async function GET() { //fungsi utama GET
       ).length,
     };
 
-    // 10. Kirim data History ke frontend.
+    // 8. Kirim data History ke frontend.
     return jsonResponse({
       success: true,
       data: {
@@ -346,12 +337,17 @@ export async function GET() { //fungsi utama GET
   } catch (error) {
     console.error("GET /api/experiments/history error:", error);
 
+    const status = error.status ?? 500;
+
     return jsonResponse(
       {
         success: false,
-        message: "Terjadi kesalahan pada server.",
+        message:
+          status === 401
+            ? error.message
+            : "Terjadi kesalahan pada server.",
       },
-      500
+      status
     );
   }
 }
