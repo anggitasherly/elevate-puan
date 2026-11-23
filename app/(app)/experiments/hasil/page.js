@@ -57,7 +57,7 @@ function RightFlowers() {
   return (
     <svg
       viewBox="0 0 260 260"
-      className="pointer-events-none absolute bottom-0 right-0 z-0 w-[170px] scale-x-[-1] opacity-75 sm:w-[210px] md:w-[270px]"
+      className="pointer-events-none absolute bottom-0 right-0 z-0 w-42.5 scale-x-[-1] opacity-75 sm:w-[210px] md:w-[270px]"
       fill="none"
       aria-hidden="true"
     >

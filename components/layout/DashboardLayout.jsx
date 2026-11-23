@@ -27,16 +27,18 @@ export default function DashboardLayout({ children }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const pathname = usePathname();
+  const [previousPathname, setPreviousPathname] = useState(pathname);
+
+  if (pathname !== previousPathname) {
+    setPreviousPathname(pathname);
+    setMobileMenuOpen(false);
+    setProfileMenuOpen(false);
+  }
 
   const pageTitle = pageTitles[pathname] || "My Workspace";
 
-  useEffect(() => {
-    setMobileMenuOpen(false);
-    setProfileMenuOpen(false);
-  }, [pathname]);
-
   return (
-    <div className="min-h-screen bg-page text-ink md:flex">
+    <div className="min-h-screen bg-transparent text-ink md:flex">
       {/* Overlay mobile */}
       {mobileMenuOpen && (
         <button

@@ -1,72 +1,50 @@
-
 import {
   FlaskConical,
   CheckCircle2,
   PlayCircle,
-  FileEdit,
-  Trophy,
+  CircleStop,
 } from "lucide-react";
 
-// Data sementara untuk demo.
-// Nanti angka ini akan diganti dengan data dari database.
-// DATA DEMO — KAK DINDA (SKINCARE)
-// Seluruh angka merupakan simulasi untuk kebutuhan demo.
+// Menerima ringkasan eksperimen dari API Growth Insights.
+export default function ExperimentOverview({ data }) {
+  const summary = data?.summary;
 
-const experimentStats = [
-  {
-    label: "Total Experiments",
-    value: 4,
-    icon: FlaskConical,
-    color: "text-brand",
-    background: "bg-lav-pale",
-  },
-  {
-    label: "Completed",
-    value: 4,
-    icon: CheckCircle2,
-    color: "text-emerald-600",
-    background: "bg-mint-soft",
-  },
-  {
-    label: "Running",
-    value: 0,
-    icon: PlayCircle,
-    color: "text-pink-ink",
-    background: "bg-pink-pale",
-  },
-  {
-    label: "Draft",
-    value: 0,
-    icon: FileEdit,
-    color: "text-honey-ink",
-    background: "bg-sun-soft",
-  },
-  {
-    label: "Successful",
-    value: 2,
-    icon: Trophy,
-    color: "text-brand-deep",
-    background: "bg-brand-soft",
-  },
-];
+  const experimentStats = [
+    {
+      label: "Total Experiments",
+      value: summary?.total ?? 0,
+      icon: FlaskConical,
+    },
+    {
+      label: "Completed",
+      value: summary?.completed ?? 0,
+      icon: CheckCircle2,
+    },
+    {
+      label: "Running",
+      value: summary?.ongoing ?? 0,
+      icon: PlayCircle,
+    },
+    {
+      label: "Stopped",
+      value: summary?.stopped ?? 0,
+      icon: CircleStop,
+    },
+  ];
 
-
-export default function ExperimentOverview() {
   return (
-    <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-5">
+    <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
       {experimentStats.map((stat) => {
         const Icon = stat.icon;
 
         return (
-          <div
+          <article
             key={stat.label}
-            className="rounded-2xl border border-lav-line bg-white p-5 shadow-sm"
+            className="rounded-2xl border border-pink-line bg-gradient-to-br from-pink-pale via-white to-white p-5 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-pink-ink/30 hover:shadow-md"
           >
             <div className="flex items-center justify-between">
-              <div
-                className={`flex h-10 w-10 items-center justify-center rounded-xl ${stat.background}`}
-              >
-                <Icon size={20} className={stat.color} />
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-pink-pale">
+                <Icon size={20} className="text-pink-ink" />
               </div>
             </div>
 
@@ -77,7 +55,7 @@ export default function ExperimentOverview() {
             <p className="mt-1 text-sm text-ink-muted">
               {stat.label}
             </p>
-          </div>
+          </article>
         );
       })}
     </div>

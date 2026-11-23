@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase"
-import BlobBackground from "@/components/layout/BlobBackground";
+import { useRouter } from "next/navigation";
 import {
   Sparkles,
   Camera,
@@ -25,70 +26,52 @@ import {
 } from "lucide-react";
 
 export default function ProfilePage() {
-  // Data sementara untuk membangun UI.
-  // Nantinya data ini akan diambil dari Supabase.
+  // Data profile
 const [profile, setProfile] = useState({
-  name: "Kak Dinda (Skincare)",
-  username: "kak_dinda",
+  name: "",
+  username: "",
   role: "Pemilik UMKM",
-  email: "dinda@example.com",
-  phone: "085832864934",
-  businessName: "Bisnis Skincare Kak Dinda",
-  category: "Kecantikan & Personal Care",
-  location: "Jakarta",
-  yearStarted: "1-3 tahun",
-  description:
-    "Bisnis skincare yang berfokus pada treatment jerawat.",
-  mainProduct: "Produk skincare",
+  email: "",
+  phone: "",
+  businessName: "",
+  category: "",
+  location: "",
+  yearStarted: "",
+  description: "",
+  mainProduct: "",
+  avatarPath: "",
+  avatarUrl: "",
 });
 
-const MOCK_PROFILE_DATA = {
-  name: "Kak Dinda (Skincare)",
-  assessment: {
-    business_category: "Kecantikan & Personal Care",
-    business_age: "1-3 tahun",
-    location: "Jakarta",
-    purchase_methods: ["Ready stock"],
-    main_customers: ["Pelanggan online"],
-    repeat_frequency: "Sering",
-    viewer_behavior: "Banyak yang bertanya tapi sedikit yang membeli",
-    sales_sources: ["Instagram", "TikTok", "Marketplace"],
-    sales_trends_3m: "Naik-turun",
-    order_surge: "Masih bisa menangani dengan mudah",
-    operational_obstacles: ["Membalas customer"],
-    biggest_challenge: "Penjualan stagnan",
-    acquisition_activities: [
-      "Konten Instagram",
-      "Paid ads",
-      "Promo / diskon",
-    ],
-    story_text:
-      "Dinda Glow adalah brand skincare lokal yang membuat perawatan wajah jadi sederhana, aman, dan terjangkau. Kami menyediakan produk dasar seperti pembersih, serum, dan pelembap untuk membantu pelanggan merawat kulit setiap hari.",
-    main_goal: "Meningkatkan penjualan",
-  },
-  constraints: {
-    hours_per_week: "5+ jam/minggu",
-    digital_skill: "sedang",
-    team_size: "2-5 orang",
-  },
-  finance_input: {
-    monthly_revenue: 12000000,
-    monthly_operating_cost: 9000000,
-    household_need: 1500000,
-    product_margin_pct: 40,
-    willingness_to_lose: 300000,
-  },
-  history: [
-    { net_profit: 384000 },
-    { net_profit: 288000 },
-  ],
-};
-
-
-  // --- Koneksi ke database ---
+  // --- KONEKSI KE DATABASE ---
   const [loading, setLoading] = useState(true); // true selama data masaih diambil
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [businessId, setBusinessId] = useState(null); // id baris bisnis, dipakai saat menyimpan nanti
+
+  const router = useRouter();
+
+  // Mengontrol proses upload foto profil.
+  const [isAvatarUploading, setIsAvatarUploading] = useState(false);
+
+  // Menampilkan pesan hasil upload foto.
+  const [avatarMessage, setAvatarMessage] = useState("");
+  // pesannya berbentuk toast notification
+  useEffect(() => {
+    if (!avatarMessage) return;
+
+    const timeoutId = setTimeout(() => {
+        setAvatarMessage("");
+    }, 3000);
+
+    return () => clearTimeout(timeoutId);
+    }, [avatarMessage]);
+
+
+  // Referensi untuk membuka file picker.
+  const avatarInputRef = useRef(null);
+
+  // Menyimpan hasil Business Condition Assessment.
+  const [assessment, setAssessment] = useState(null);
   
   // Menyimpan data Financial Readiness dari Supabase.
   const [financialReadiness, setFinancialReadiness] = useState(null);
@@ -102,157 +85,105 @@ const MOCK_PROFILE_DATA = {
   // Mengatur apakah modal Business Constraints sedang terbuka.
   const [isConstraintsViewOpen, setIsConstraintsViewOpen] = useState(false);
 
-  // Mengontrol modal Edit Business Constraints.
-  const [isConstraintsEditOpen, setIsConstraintsEditOpen] = useState(false);
-
-  // Menampung perubahan data sebelum disimpan.
-  const [draftConstraints, setDraftConstraints] = useState({
-    hours_per_week: "",
-    digital_skill: "",
-    team_size: "",
-  });
-
-  // Menandai proses penyimpanan.
-  const [isSavingConstraints, setIsSavingConstraints] = useState(false);
-
-  // Menampung pesan error saat penyimpanan gagal.
-  const [constraintsError, setConstraintsError] = useState("");
-
-  //useEffect buat ga pake supabase tapi pake mockup sementara
-  
-
-
+  //useEffect ini untuk menjalankan proses yang perlu dilakukan setelah komponen react ditampilkan
+// Mengambil data Profile melalui API.
 useEffect(() => {
-  const mock = MOCK_PROFILE_DATA;
+  let isMounted = true;
 
-  setIsLoggedIn(true);
-  setBusinessId("mock-business-001");
+  async function loadProfile() {
+    setLoading(true);
 
-  setProfile((prev) => ({
-    ...prev,
-    name: mock.name,
-    username: "kak_dinda",
-    role: "Pemilik UMKM",
-    email: "dinda@example.com",
-    businessName: "Bisnis Skincare Kak Dinda",
-    category: mock.assessment.business_category,
-    location: "Jakarta",
-    yearStarted: mock.assessment.business_age,
-    description: mock.assessment.story_text,
-    mainProduct: "Produk skincare",
-  }));
+    try {
+      // 1. Ambil session dan access token dari Supabase.
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
 
-  setFinancialReadiness({
-    ...mock.finance_input,
-  });
+      if (sessionError) throw sessionError;
 
-  setBusinessConstraints({
-    ...mock.constraints,
-  });
-
-  setDraftConstraints({
-    ...mock.constraints,
-  });
-
-  setLoading(false);
-}, []); //Ini akhir mock up sementara itu dari useeffect
-
-  /*// useEffect dengan [] di akhir = dijalankan SATU KALI saat halaman pertama dibuka.
-  useEffect(() => {
-    async function loadProfile() {
-      // 1) Siapa yang sedang login?
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        setLoading(false); // belum login
+      // Jika belum login, hentikan proses.
+      if (!session) {
+        if (isMounted) setIsLoggedIn(false);
         return;
       }
-      setIsLoggedIn(true);
 
-      // 2) Data akun dari tabel 'profiles'
-      const { data: p, error: pErr } = await supabase
-        .from("profiles")
-        .select("full_name, business_name, email, phone")
-        .eq("id", user.id)
-        .single();
+      // 2. Minta data Profile melalui API.
+      const response = await fetch("/api/profile", {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        cache: "no-store",
+      });
 
-      // 3) Data bisnis dari tabel 'businesses'. limit(1) karena satu user bisa punya >1 baris.
-      const { data: b, error: bErr } = await supabase
-        .from("businesses")
-        .select("id, name, category, business_age, business_type, city")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: true })
-        .limit(1)
-        .maybeSingle(); // boleh kosong kalau user belum mengisi data bisnis
+      const result = await response.json();
 
-      // 4) Ambil Financial Readiness berdasarkan business_id.
-      let financialData = null;
-
-      if (b?.id) {
-      const { data: f, error: fErr } = await supabase
-        .from("financial_readiness")
-        .select("*")
-        .eq("business_id", b.id)
-        .order("created_at", { ascending: false });
-
-      if (fErr) {
-        console.error("financial_readiness error:", fErr.message);
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || "Gagal mengambil data Profile.");
       }
 
-      financialData = f?.[0] ?? null; // hasil berupa array karena data kan financial readiness diambil berkali kali
-    }
+      // 3. Pisahkan data berdasarkan objek yang dikembalikan API.
+      const {
+        profile: p,
+        business: b,
+        assessment: assessmentData,
+        financialReadiness: financialData,
+        constraints: constraintsData,
+      } = result.data;
 
+      if (!isMounted) return;
 
-      // Simpan data ke state React. 
-      setFinancialReadiness(financialData);
-      console.log("Financial Readiness:", financialData);
-      //  ini akhir yang FINANCIAL READINESS
+      setIsLoggedIn(true);
 
-
-      // Ambil data dari SUPABASE khusus Business Constraints berdasarkan business_id. 
-      let constraintsData = null;
-
-      if (b?.id) {
-            const { data: c, error: cErr } = await supabase
-                .from("constraints")
-                .select("*")
-                .eq("business_id", b.id)
-                .maybeSingle();
-
-            if (cErr) {
-                console.error("Business Constraints error:", cErr.message);
-            }
-
-            constraintsData = c;
-        }
-
-        setBusinessConstraints(constraintsData);
-        console.log("Business Constraints:", constraintsData);
-        // ini akhir yang BUSINESS CONSTRAIN
-
-      if (pErr) console.error("profiles error:", pErr.message, pErr.code);
-      if (bErr) console.error("businesses error:", bErr.message, bErr.code);
-
+      // 4. Simpan data ke React state.
       setBusinessId(b?.id ?? null);
+      setAssessment(assessmentData ?? null);
+      console.log("AI Diagnosis:", assessmentData?.ai_diagnosis);
 
-      // 5) Terjemahkan nama kolom database -> nama field yang dipakai UI.
+      setFinancialReadiness(
+        financialData
+          ? {
+              ...financialData,
+              monthly_operating_cost:
+                financialData.monthly_operating_cost ?? null,
+            }
+          : null
+      );
+
+      setBusinessConstraints(constraintsData ?? null);
+
+      // 5. Mapping data API ke field yang digunakan UI.
       setProfile((prev) => ({
         ...prev,
         name: p?.full_name ?? "",
-        email: p?.email ?? user.email ?? "",
+        email: session.user?.email ?? p?.email ?? "",
         phone: p?.phone ?? "",
         businessName: b?.name ?? p?.business_name ?? "",
         category: b?.category ?? "",
         location: b?.city ?? "",
         yearStarted: b?.business_age ?? "",
         mainProduct: b?.business_type ?? "",
-        description: "", // belum ada kolomnya di database
+        description: b?.business_description ?? "",
+        avatarPath: p?.avatar_path ?? "",
+        avatarUrl: p?.avatar_url ?? "",
       }));
-      setLoading(false);
-    }
 
-    loadProfile();
-  }, []);
-  // Akhir kode koneksi to supabase*/
+      console.log("Profile berhasil dimuat melalui API.");
+
+    } catch (error) {
+      console.error("Load Profile error:", error.message);
+    } finally {
+      if (isMounted) setLoading(false);
+    }
+  }
+
+  loadProfile();
+
+  return () => {
+    isMounted = false;
+  };
+}, []);
 
   // Mengontrol apakah modal sedang terbuka.
   const [isEditOpen, setIsEditOpen] = useState(false);
@@ -270,58 +201,61 @@ useEffect(() => {
   // "async" karena menunggu jawaban Supabase; 
   const handleSaveProfile = async (event) => {
     event.preventDefault();*/
-// handle save profile sementra mock
-    const handleSaveProfile = (event) => {
+
+// Menyimpan Personal Information melalui API.
+const handleSaveProfile = async (event) => {
   event.preventDefault();
 
-  setProfile((prev) => ({
-    ...prev,
-    name: draftProfile.name.trim(),
-    phone: draftProfile.phone.trim(),
-  }));
+  try {
+    // 1. Ambil session dan access token.
+    const {
+      data: { session },
+      error: sessionError,
+    } = await supabase.auth.getSession();
 
-  setIsEditOpen(false);
-};
+    if (sessionError) throw sessionError;
 
-
-    /*// Siapa yang login? id-nya dipakai untuk menentukan baris mana yang diubah.
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-
-    const phone = draftProfile.phone?.trim();
-
-    const { error } = await supabase //"await" = tunggu sampai selesai.
-      .from("profiles")
-      .update({
-        full_name: draftProfile.name.trim(),
-        // Kolom phone itu unik, jadi nomor kosong harus disimpan sebagai null, bukan "".
-        phone: phone ? phone : null,
-      })
-      .eq("id", user.id) // hanya ubah baris milik user ini
-      .select()          // minta baris hasil update supaya bisa dicek berhasil atau tidak
-      .single();
-    
-    if (error) {
-      // 23505 = melanggar kolom unik (nomor telepon sudah dipakai akun lain)
-      alert(
-        error.code === "23505"
-          ? "Nomor telepon sudah dipakai akun lain."
-          : "Gagal menyimpan. Coba lagi."
-      );
-      console.error(error.message, error.code);
-      return;
+    if (!session?.access_token) {
+      throw new Error("Sesi login tidak ditemukan. Silakan login kembali.");
     }
 
-    // Perbarui tampilan setelah database berhasil menyimpan data.
+    // 2. Siapkan data yang akan disimpan.
+    const phone = draftProfile.phone.trim();
+
+    const response = await fetch("/api/profile/personal", {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({
+        full_name: draftProfile.name.trim(),
+        phone: phone || null,
+      }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok || !result.success) {
+      throw new Error(result.message || "Gagal menyimpan Profile.");
+    }
+
+    // 3. Perbarui tampilan setelah API berhasil.
     setProfile((prev) => ({
-        ...prev,
-        name: draftProfile.name.trim(),
-        phone: phone || "",
+      ...prev,
+      name: draftProfile.name.trim(),
+      phone: phone,
     }));
 
-    // Tutup modal setelah penyimpanan berhasil.
     setIsEditOpen(false);
-    };*/
+
+    alert("Personal Information berhasil disimpan!");
+
+  } catch (error) {
+    console.error("Save Personal Profile error:", error);
+    alert(error.message || "Gagal menyimpan perubahan. Coba lagi.");
+  }
+};
 
   // Membuka modal dengan deskripsi bisnis saat ini.
   const handleOpenBusinessEdit = () => {
@@ -329,17 +263,71 @@ useEffect(() => {
     setIsBusinessEditOpen(true);
     };
 
-  // Menyimpan deskripsi bisnis yang sudah diperbarui.
-  const handleSaveBusinessDescription = (event) => {
+// Menyimpan deskripsi bisnis melalui API.
+const handleSaveBusinessDescription = async (event) => {
+    // 1. Mencegah browser melakukan reload halaman.
     event.preventDefault();
 
-    setProfile((prev) => ({
-        ...prev,
-        description: draftDescription,
-    }));
+    try {
+        // 2. Mengambil session login untuk mendapatkan access token.
+        const {
+            data: { session },
+            error: sessionError,
+        } = await supabase.auth.getSession();
 
-    setIsBusinessEditOpen(false);
-    };
+        if (sessionError) throw sessionError;
+
+        // 3. Memastikan user masih memiliki session login.
+        if (!session?.access_token) {
+            throw new Error("Sesi login tidak ditemukan. Silakan login kembali.");
+        }
+
+        // 4. Membersihkan teks deskripsi dari spasi berlebih.
+        const description = draftDescription.trim();
+
+        if (!description) {
+            throw new Error("Business Description tidak boleh kosong.");
+        }
+
+        // 5. Mengirim deskripsi ke API.
+        const response = await fetch("/api/profile/business", {
+            method: "PATCH",
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${session.access_token}`,
+            },
+            body: JSON.stringify({
+                description: description,
+            }),
+        });
+
+        // 6. Membaca hasil respons dari API.
+        const result = await response.json();
+
+        if (!response.ok || !result.success) {
+            throw new Error(
+                result.message || "Gagal menyimpan Business Description."
+            );
+        }
+
+        // 7. Memperbarui state Profile setelah API berhasil.
+        setProfile((prev) => ({
+            ...prev,
+            description: description,
+        }));
+
+        // 8. Menutup modal dan menampilkan notifikasi.
+        setIsBusinessEditOpen(false);
+
+        alert("Business Description berhasil disimpan!");
+
+    } catch (error) {
+        // 9. Menangani kesalahan saat proses penyimpanan.
+        console.error("Save Business Description error:", error);
+
+        alert(error.message || "Gagal menyimpan perubahan. Coba lagi.");
+    }
+};
 
   // Membuka modal dan mengambil data bisnis saat ini.
   const handleOpenBusinessInfo = () => {
@@ -364,60 +352,81 @@ useEffect(() => {
     }));
   };
 
-  /*// Menyimpan perubahan informasi bisnis. ke tabel 'businesses'
-  const handleSaveBusinessInfo = async (event) => {
-    event.preventDefault();*/
+// Menyimpan Business Overview melalui API.
+const handleSaveBusinessInfo = async (event) => {
+    // 1. Mencegah form melakukan reload halaman.
+    event.preventDefault();
 
-    //handle save bisnis info sementara mock
-    const handleSaveBusinessInfo = (event) => {
-        event.preventDefault();
+    try {
+        // 2. Mengambil session login untuk mendapatkan access token.
+        const {
+            data: { session },
+            error: sessionError,
+        } = await supabase.auth.getSession();
 
+        if (sessionError) throw sessionError;
+
+        // 3. Memastikan user masih memiliki session login.
+        if (!session?.access_token) {
+            throw new Error("Sesi login tidak ditemukan. Silakan login kembali.");
+        }
+
+        // 4. Membersihkan dan menyiapkan data dari form.
+        const businessName = draftBusinessInfo.businessName.trim();
+        const category = draftBusinessInfo.category;
+        const location = draftBusinessInfo.location.trim();
+        const yearStarted = String(
+            draftBusinessInfo.yearStarted ?? ""
+        ).trim();
+        const mainProduct = draftBusinessInfo.mainProduct.trim();
+
+        // 5. Mengirim data ke API Business Profile.
+        const response = await fetch("/api/profile/business", {
+            method: "PATCH",
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${session.access_token}`,
+            },
+            body: JSON.stringify({
+                name: businessName,
+                category: category || null,
+                city: location || null,
+                business_age: yearStarted || null,
+                business_type: mainProduct || null,
+            }),
+        });
+
+        // 6. Membaca hasil respons dari API.
+        const result = await response.json();
+
+        if (!response.ok || !result.success) {
+            throw new Error(
+                result.message || "Gagal menyimpan Business Overview."
+            );
+        }
+
+        // 7. Memperbarui state Profile setelah API berhasil.
         setProfile((prev) => ({
             ...prev,
-            ...draftBusinessInfo,
+            businessName,
+            category,
+            location,
+            yearStarted,
+            mainProduct,
         }));
 
+        // 8. Menutup modal dan memberi notifikasi berhasil.
         setIsBusinessInfoOpen(false);
-    };
 
+        alert("Business Overview berhasil disimpan!");
 
-    /*const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    } catch (error) {
+        // 9. Menampilkan pesan jika proses penyimpanan gagal.
+        console.error("Save Business Overview error:", error);
 
-    // Kiri = nama kolom database, kanan = nilai dari form.
-    const values = {
-      name: draftBusinessInfo.businessName.trim(),
-      category: draftBusinessInfo.category,
-      city: draftBusinessInfo.location.trim(),
-      business_age: String(draftBusinessInfo.yearStarted).trim(),
-      business_type: draftBusinessInfo.mainProduct.trim(),
-    };
-
-    let result;
-    if (businessId) {
-      // Sudah punya baris bisnis -> ubah baris itu.
-      result = await supabase
-        .from("businesses").update(values).eq("id", businessId).select().single();
-    } else {
-      // Belum punya -> buat baris baru untuk user ini.
-      result = await supabase
-        .from("businesses").insert({ ...values, user_id: user.id }).select().single();
+        alert(error.message || "Gagal menyimpan perubahan. Coba lagi.");
     }
-
-    if (result.error) {
-      alert("Gagal menyimpan. Coba lagi.");
-      console.error(result.error.message, result.error.code);
-      return;
-    }
-
-    setBusinessId(result.data.id); // simpan id kalau barusan dibuat
-    setProfile((prev) => ({
-        ...prev,
-        ...draftBusinessInfo,
-  }));
-
-    setIsBusinessInfoOpen(false);
-};*/
+};
 
   // Mengubah nilai input sesuai field yang sedang diedit.
   const handleInputChange = (event) => {
@@ -473,128 +482,70 @@ useEffect(() => {
     }));
   };
   // function menangani form password
-  const handleSavePassword = (event) => {
+  // Menangani perubahan password melalui Supabase Auth.
+const handleSavePassword = async (event) => {
     event.preventDefault();
 
-    if(passwordData.newPassword.length < 8) {
+    // Validasi password baru.
+    if (passwordData.newPassword.length < 8) {
         alert("Password baru minimal 8 karakter.");
         return;
     }
 
-    if(passwordData.newPassword !== passwordData.confirmPassword) {
+    // Validasi konfirmasi password.
+    if (passwordData.newPassword !== passwordData.confirmPassword) {
         alert("Konfirmasi password tidak sesuai.");
         return;
     }
-    // Belum mengubah password sungguhan.
-    // Perlu dihubungkan ke Supabase Auth terlebih dahulu.
-    alert("UI berhasil diuji. Fitur perubahan password akan diaktifkan setelah integrasi autentikasi.");
 
-    setPasswordData({
-        currentPassword: "",
-        newPassword: "",
-        confirmPassword: "",
-    });
+    try {
+        // 1. Mengambil informasi akun yang sedang login.
+        const {
+            data: { user },
+            error: userError,
+        } = await supabase.auth.getUser();
 
-    setIsPasswordModalOpen(false);
-  };
+        if (userError) throw userError;
 
-  //MENYIMPAN PREFERENSI PENDAMPINGAN AI (JIKA TIDAK SESUAI BISA HIDE MENJAI COMMENT FULL HIGHLIGT DISINI)
-  const[preferences, setPreferences] = useState({
-    guidanceStyle: "step-by-step",
-    experimentApproach: "small-gradual",
-  });
+        if (!user?.email) {
+            throw new Error("Email akun tidak ditemukan.");
+        }
 
-  //Mengatur modal Business Preferences
-  const[isPreferencesOpen, setIsPreferencesOpen] = useState(false);
+        // 2. Memverifikasi password saat ini.
+        const { error: verifyError } =
+            await supabase.auth.signInWithPassword({
+                email: user.email,
+                password: passwordData.currentPassword,
+            });
 
-  //Menyimpan perubahan sementara sebelum di hapus
-  const [draftPreferences, setDraftPreferences] = useState({
-    guidanceStyle: "step-by-step",
-    experimentApproach: "small-gradual",
-  });
+        if (verifyError) {
+            throw new Error("Password saat ini tidak sesuai.");
+        }
 
-// Function Membuka modal dan mengambil preferensi saat ini
-const handleOpenPreferences = () => {
-    setDraftPreferences({ ...preferences });
-    setIsPreferencesOpen(true);
-};
+        // 3. Memperbarui password melalui Supabase Auth.
+        const { error: updateError } =
+            await supabase.auth.updateUser({
+                password: passwordData.newPassword,
+            });
 
-// Function Mengatur perubahan pilihan preferensi
-const handlePreferencesChange = (event) => {
-    const { name, value } = event.target;
+        if (updateError) throw updateError;
 
-    setDraftPreferences((prev) => ({
-        ...prev,
-        [name]: value,
-    }));
-};
+        alert("Password berhasil diperbarui!");
 
-// Menyimpan preferensi pengguna
-const handleSavePreferences = (event) => {
-    event.preventDefault();
+        // 4. Membersihkan form setelah berhasil.
+        setPasswordData({
+            currentPassword: "",
+            newPassword: "",
+            confirmPassword: "",
+        });
 
-    setPreferences({ ...draftPreferences });
-    setIsPreferencesOpen(false);
-};
-// KALO GA KEPAKE COMMENT SAMPE SINI
+        setIsPasswordModalOpen(false);
 
-// Menyimpan perubahan Business Constraints ke Supabase.
-const handleSaveConstraints = async () => {
-    setIsSavingConstraints(true);
-    setConstraintsError("");
-
-    // Pastikan bisnis memiliki ID.
-    if (!businessId) {
-        setConstraintsError("Data bisnis tidak ditemukan.");
-        setIsSavingConstraints(false);
-        return;
+    } catch (error) {
+        console.error("Gagal mengubah password:", error);
+        alert(error.message || "Gagal mengubah password. Silakan coba kembali.");
     }
-
-    // Pastikan input wajib sudah diisi.
-    if (
-        draftConstraints.hours_per_week === "" ||
-        draftConstraints.digital_skill === "" ||
-        draftConstraints.team_size === ""
-    ) {
-        setConstraintsError("Semua informasi wajib diisi.");
-        setIsSavingConstraints(false);
-        return;
-    }
-
-    // Siapkan data untuk dikirim ke Supabase.
-    const constraintsPayload = {
-        business_id: businessId,
-        hours_per_week: Number(draftConstraints.hours_per_week),
-        digital_skill: draftConstraints.digital_skill,
-        team_size: Number(draftConstraints.team_size),
-    };
-
-    // Update record lama atau insert record baru.
-    const query = businessConstraints?.id
-        ? supabase
-              .from("constraints")
-              .update(constraintsPayload)
-              .eq("id", businessConstraints.id)
-        : supabase
-              .from("constraints")
-              .insert(constraintsPayload);
-
-    const { data, error } = await query
-        .select()
-        .single();
-
-    if (error) {
-        console.error("Save Constraints error:", error.message);
-        setConstraintsError("Gagal menyimpan data. Silakan coba lagi.");
-        setIsSavingConstraints(false);
-        return;
-    }
-
-    // Perbarui data di halaman tanpa perlu reload.
-    setBusinessConstraints(data);
-    setIsConstraintsEditOpen(false);
-    setIsSavingConstraints(false);
-}; //AKHIR SIMPAN PERUBAHAN CONSTRAINT TO SUPABASE
+};
 
 // Mengubah angka menjadi format mata uang Rupiah.
 const formatRupiah = (value) => {
@@ -609,16 +560,49 @@ const formatRupiah = (value) => {
     }).format(value);
 };
 
+// Menangani proses Sign Out menggunakan Supabase Auth.
+const handleSignOut = async () => {
+    try {
+        const { error } = await supabase.auth.signOut();
+
+        if (error) throw error;
+
+        // Arahkan pengguna ke halaman login setelah berhasil logout.
+        router.replace("/login");
+    } catch (error) {
+        console.error("Gagal melakukan sign out:", error);
+        alert("Gagal keluar dari akun. Silakan coba kembali.");
+    }
+};
 
 
   // Tahan tampilan sampai data siap, supaya tidak berkedip dari data contoh.
   // ketika login loadig dulu prepare buat langsung masuk ke profile page
   // hook (useState, useEffect) tidak boleh dilewati oleh return lebih awal
-  if (loading) {
+    if (loading) {
     return (
-        <p className="text-sm text-ink-muted">Memuat profil...</p>
+        <div className="flex min-h-[60vh] items-center justify-center px-4">
+        <div
+            role="status"
+            aria-live="polite"
+            className="flex flex-col items-center gap-4 rounded-2xl border border-brand-soft bg-white/95 px-9 py-8 shadow-xl shadow-brand/10"
+        >
+            {/* Spinner loading */}
+            <div className="h-11 w-11 animate-spin rounded-full border-4 border-brand-soft border-t-[#6C5CE7]" />
+
+            <div className="text-center">
+            <p className="text-sm font-semibold text-ink-title">
+                Menyiapkan profilmu
+            </p>
+            <p className="mt-1 text-xs text-ink-muted">
+                Sebentar ya, kami sedang memuat datamu...
+            </p>
+            </div>
+        </div>
+        </div>
     );
-  }
+    }
+
 
   // Belum login: arahkan ke halaman login.
   if (!isLoggedIn) {
@@ -631,63 +615,249 @@ const formatRupiah = (value) => {
         </p>
     );
   }
+/* FUNGSI UPLOAD FOTO PROFIL*/
+const handleAvatarChange = async (event) => {
+  const input = event.target;
+  const file = input.files?.[0];
+
+  if (!file) return;
+
+  // Validasi format foto.
+  const allowedTypes = {
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+  };
+
+  if (!allowedTypes[file.type]) {
+    setAvatarMessage("Format foto harus JPG, PNG, atau WEBP.");
+    input.value = "";
+    return;
+  }
+
+  // Maksimal 2 MB.
+  if (file.size > 2 * 1024 * 1024) {
+    setAvatarMessage("Ukuran foto maksimal 2 MB.");
+    input.value = "";
+    return;
+  }
+
+  setIsAvatarUploading(true);
+  setAvatarMessage("");
+
+  let uploadedPath = null;
+
+  try {
+    // 1. Ambil sesi pengguna.
+    const {
+      data: { session },
+      error: sessionError,
+    } = await supabase.auth.getSession();
+
+    if (sessionError || !session?.access_token || !session.user?.id) {
+      throw new Error("Sesi login tidak ditemukan. Silakan login kembali.");
+    }
+
+    // 2. Buat lokasi file baru.
+    const newAvatarPath = `${session.user.id}/${crypto.randomUUID()}.${allowedTypes[file.type]}`;
+
+    // 3. Upload foto ke Supabase Storage.
+    const { error: uploadError } = await supabase.storage
+      .from("profile-avatars")
+      .upload(newAvatarPath, file, {
+        cacheControl: "3600",
+        upsert: false,
+        contentType: file.type,
+      });
+
+    if (uploadError) throw uploadError;
+
+    uploadedPath = newAvatarPath;
+
+    // 4. Simpan lokasi foto ke tabel profiles melalui API.
+    const response = await fetch("/api/profile/personal", {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({
+        avatar_path: newAvatarPath,
+      }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok || !result.success) {
+      throw new Error(result.message || "Gagal menyimpan foto profil.");
+    }
+
+    // 5. Buat signed URL agar foto bisa langsung ditampilkan.
+    const {
+      data: signedUrlData,
+      error: signedUrlError,
+    } = await supabase.storage
+      .from("profile-avatars")
+      .createSignedUrl(newAvatarPath, 60 * 60);
+
+    // 6. Perbarui tampilan foto di halaman.
+    setProfile((prev) => ({
+      ...prev,
+      avatarPath: newAvatarPath,
+      avatarUrl: signedUrlError ? "" : signedUrlData?.signedUrl ?? "",
+    }));
+
+    // 7. Hapus foto lama setelah foto baru berhasil disimpan.
+    if (profile.avatarPath && profile.avatarPath !== newAvatarPath) {
+      const { error: deleteError } = await supabase.storage
+        .from("profile-avatars")
+        .remove([profile.avatarPath]);
+
+      if (deleteError) {
+        console.error("Gagal menghapus foto lama:", deleteError);
+      }
+    }
+
+    setAvatarMessage(
+      signedUrlError
+        ? "Foto berhasil disimpan. Muat ulang halaman untuk melihat foto terbaru."
+        : "Foto profil berhasil diperbarui."
+    );
+  } catch (error) {
+    // Hapus file baru jika proses penyimpanan profil gagal.
+    if (uploadedPath) {
+      await supabase.storage
+        .from("profile-avatars")
+        .remove([uploadedPath]);
+    }
+
+    console.error("Avatar upload error:", error);
+    setAvatarMessage(error.message || "Gagal mengunggah foto profil.");
+  } finally {
+    setIsAvatarUploading(false);
+    input.value = "";
+  }
+};
+
 
   return (
     <>
-     <BlobBackground/>
       <div className="mx-auto max-w-6xl space-y-8">
 
         {/* HEADER PROFILE */}
         <section>
-          <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-sm font-medium text-brand shadow-sm">
-            <Sparkles className="h-4 w-4 text-pink-ink" />
-            My Account
-          </div>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-brand">
+                My Account
+            </p>
 
-          <h1 className="text-3xl font-bold tracking-tight text-brand">
-            My Profile
-          </h1>
+            <h1 className="text-3xl font-bold tracking-tight text-ink-title">
+                My Profile
+            </h1>
 
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-ink-muted">
-            Kelola informasi pribadi dan profil bisnis kamu untuk
-            membantu Elevate Puan memberikan pendampingan yang lebih relevan.
-          </p>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-ink-muted">
+                Kelola informasi pribadi dan profil bisnis kamu untuk
+                membantu Elevate Puan memberikan pendampingan yang lebih relevan.
+            </p>
         </section>
 
+
         {/* PROFILE IDENTITY CARD */}
-        <section className="relative overflow-hidden rounded-3xl border border-border bg-white p-6 shadow-sm sm:p-8">
+        <section className="relative overflow-hidden rounded-3xl border border-pink-line bg-white p-6 shadow-sm sm:p-8">
 
-          {/* Dekorasi gradasi di background kartu */}
-          <div className="pointer-events-none absolute -right-12 -top-16 h-48 w-48 rounded-full bg-brand-soft opacity-70 blur-3xl" />
-          <div className="pointer-events-none absolute -bottom-20 right-32 h-40 w-40 rounded-full bg-blush-soft opacity-60 blur-3xl" />
+            {/* Dekorasi gradasi pink di sisi kanan kartu */}
+            <div className="pointer-events-none absolute -right-12 -top-16 h-48 w-48 rounded-full bg-pink-pale opacity-70 blur-3xl" />
+            <div className="pointer-events-none absolute -bottom-20 right-32 h-40 w-40 rounded-full bg-blush-soft opacity-60 blur-3xl" />
 
-          <div className="relative flex flex-col gap-6 sm:flex-row sm:items-center">
+            <div className="relative flex flex-col gap-6 sm:flex-row sm:items-center">
 
+            {/* UBAH TAMPILAN FOTO PROFIL */}
             {/* Avatar pengguna */}
             <div className="relative mx-auto sm:mx-0">
-              <div className="flex h-24 w-24 items-center justify-center rounded-full border-4 border-white bg-brand-soft text-3xl font-bold text-brand shadow-md">
-                {profile.name
+            {/* Input foto tersembunyi */}
+            <input
+                ref={avatarInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="hidden"
+                onChange={handleAvatarChange}
+            />
+
+            {/* Foto profil atau inisial nama */}
+            <div className="relative flex h-24 w-24 items-center justify-center overflow-hidden rounded-full border-4 border-white bg-brand-soft text-3xl font-bold text-brand shadow-md">
+                {profile.avatarUrl ? (
+                <Image
+                    src={profile.avatarUrl}
+                    alt="Foto profil"
+                    fill
+                    unoptimized
+                    sizes="96px"
+                    className="object-cover"
+                />
+                ) : (
+                (profile.name || "?")
                     .split(" ")
+                    .filter(Boolean)
                     .map((word) => word[0])
                     .join("")
                     .slice(0, 2)
-                    .toUpperCase()}
-              </div>
-
-              {/* Tombol ganti foto */}
-              <button
-                type="button"
-                aria-label="Ganti foto profil"
-                className="absolute bottom-0 right-0 flex h-9 w-9 items-center justify-center rounded-full bg-cta-to text-white shadow-md transition hover:scale-105"
-              >
-                <Camera size={16} />
-              </button>
+                    .toUpperCase()
+                )}
             </div>
+
+            {/* Tombol ubah foto */}
+            <button
+                type="button"
+                onClick={() => avatarInputRef.current?.click()}
+                disabled={isAvatarUploading}
+                aria-label="Ubah foto profil"
+                className="absolute bottom-0 right-0 flex h-9 w-9 items-center justify-center rounded-full bg-cta-to text-white shadow-md transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+                <Camera size={16} />
+            </button>
+            </div>
+
+            {/*Pesan notifikasi perubahan profile*/}
+            {avatarMessage && (
+            <div
+                role={
+                avatarMessage.toLowerCase().includes("berhasil")
+                    ? "status"
+                    : "alert"
+                }
+                className={`fixed right-4 top-20 z-[100] flex max-w-[calc(100vw-2rem)] items-start gap-3 rounded-xl border bg-white px-4 py-3 shadow-xl shadow-brand/10 ${
+                avatarMessage.toLowerCase().includes("berhasil")
+                    ? "border-brand-soft"
+                    : "border-rose-200"
+                }`}
+            >
+                <span
+                className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                    avatarMessage.toLowerCase().includes("berhasil")
+                    ? "bg-brand-soft text-brand"
+                    : "bg-rose-100 text-rose-600"
+                }`}
+                >
+                {avatarMessage.toLowerCase().includes("berhasil") ? "✓" : "!"}
+                </span>
+
+                <p
+                className={`pt-0.5 text-sm font-medium ${
+                    avatarMessage.toLowerCase().includes("berhasil")
+                    ? "text-ink"
+                    : "text-rose-700"
+                }`}
+                >
+                {avatarMessage}
+                </p>
+            </div>
+            )}
+
+
 
             {/* Informasi singkat pengguna */}
             <div className="flex-1 text-center sm:text-left">
               <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-start">
-                <h2 className="text-2xl font-bold text-brand">
+                <h2 className="text-2xl font-bold text-ink-title">
                   {profile.name}
                 </h2>
 
@@ -715,7 +885,7 @@ const formatRupiah = (value) => {
             <button
               type="button"
               onClick={handleOpenEdit}
-              className="inline-flex items-center justify-center gap-2 rounded-xl border border-brand bg-white px-4 py-2.5 text-sm font-semibold text-brand transition hover:bg-lav-pale"
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-pink-line bg-white px-4 py-2.5 text-sm font-semibold text-pink-ink transition hover:bg-pink-pale"
             >
               <Pencil size={15} />
               Edit Profile
@@ -724,188 +894,302 @@ const formatRupiah = (value) => {
           </div>
         </section>
 
+        
         {/* BUSINESS SUMMARY */}
         <section>
-          <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
-                <h2 className="text-xl font-bold text-brand">
-                    Business Overview
-                </h2>
-
-                <p className="mt-1 text-sm text-ink-muted">
-                Informasi singkat mengenai bisnis yang sedang kamu kembangkan.
-                </p>
-            </div>
-
-            <button
-                type="button"
-                onClick={handleOpenBusinessInfo}
-                className="inline-flex items-center gap-2 rounded-xl border border-brand bg-white px-4 py-2.5 text-sm font-semibold text-brand transition hover:bg-lav-pale"
-            >
-                <Pencil size={15} />
-                Edit Information
-            </button>
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-
-            {/* Business Category */}
-            <article className="rounded-2xl border border-border bg-white p-5 shadow-sm">
-              <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-brand-soft text-brand">
-                <BriefcaseBusiness size={19} />
-              </div>
-
-              <p className="text-xs font-medium text-ink-muted">
-                Business Category
-              </p>
-
-              <p className="mt-2 font-semibold text-brand">
-                {profile.category}
-              </p>
-            </article>
-
-            {/* Business Started */}
-            <article className="rounded-2xl border border-border bg-white p-5 shadow-sm">
-              <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-[#fff5c7] text-amber-700">
-                <CalendarDays size={19} />
-              </div>
-
-              <p className="text-xs font-medium text-ink-muted">
-                Business Age
-              </p>
-
-              <p className="mt-2 font-semibold text-brand">
-                {profile.yearStarted}
-              </p>
-            </article>
-
-            {/* Main Product */}
-            <article className="rounded-2xl border border-border bg-white p-5 shadow-sm">
-              <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-blush-soft text-pink-ink">
-                <Store size={19} />
-              </div>
-
-              <p className="text-xs font-medium text-ink-muted">
-                Business Type
-              </p>
-
-              <p className="mt-2 font-semibold text-brand">
-                {profile.mainProduct}
-              </p>
-            </article>
-
-            {/* Business Location */}
-            <article className="rounded-2xl border border-border bg-white p-5 shadow-sm">
-                <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-[#e8f5ff] text-sky-700">
-                    <MapPin size={19} />
-                </div>
-
-                <p className="text-xs font-medium text-ink-muted">
-                    Business Location
-                </p>
-
-                <p className="mt-2 font-semibold text-brand">
-                    {profile.location || "-"}
-                </p>
-            </article>
-
-          </div>
-        </section>
-
-        {/* BUSINESS DESCRIPTION */}
-        <section className="rounded-2xl border border-border bg-white p-5 shadow-sm sm:p-6">
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="font-bold text-brand">
-              About My Business
-            </h2>
-
-            <button
-              type="button"
-              onClick={handleOpenBusinessEdit}
-              className="text-sm font-semibold text-brand hover:text-pink-ink"
-            >
-              Edit <ChevronRight className="inline h-4 w-4" />
-            </button>
-          </div>
-
-          <p className="mt-3 text-sm leading-7 text-ink-muted">
-            {profile.description}
-          </p>
-        </section>
-
-        {/* BUSINESS CONDITIONS */}
-        <section>
-        {/* Section heading */}
-        <div className="mb-6">
-            <h2 className="text-xl font-bold text-brand">
-                Business Conditions
+            <h2 className="text-xl font-bold text-ink-title">
+                Business Overview
             </h2>
 
             <p className="mt-1 text-sm text-ink-muted">
-                Kenali kondisi keuangan dan keterbatasan bisnismu
-                sebelum menentukan strategi pertumbuhan.
+                Informasi singkat mengenai bisnis yang sedang kamu kembangkan.
             </p>
+            </div>
+
+            <button
+            type="button"
+            onClick={handleOpenBusinessInfo}
+            className="inline-flex items-center gap-2 rounded-xl border border-pink-line bg-white px-4 py-2.5 text-sm font-semibold text-pink-ink transition hover:bg-pink-pale"
+            >
+            <Pencil size={15} />
+            Edit Information
+            </button>
         </div>
 
-        {/* Condition cards */}
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+
+            {/* Business Category */}
+            <article className="rounded-2xl border border-pink-line bg-white p-5 shadow-sm">
+            <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-pink-pale text-pink-ink">
+                <BriefcaseBusiness size={19} />
+            </div>
+
+            <p className="text-xs font-medium text-ink-muted">
+                Business Category
+            </p>
+
+            <p className="mt-2 font-semibold text-ink">
+                {profile.category}
+            </p>
+            </article>
+
+            {/* Business Age */}
+            <article className="rounded-2xl border border-pink-line bg-white p-5 shadow-sm">
+            <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-sun-soft text-amber-700">
+                <CalendarDays size={19} />
+            </div>
+
+            <p className="text-xs font-medium text-ink-muted">
+                Business Age
+            </p>
+
+            <p className="mt-2 font-semibold text-ink">
+                {profile.yearStarted}
+            </p>
+            </article>
+
+            {/* Business Type */}
+            <article className="rounded-2xl border border-pink-line bg-white p-5 shadow-sm">
+            <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-blush-soft text-pink-ink">
+                <Store size={19} />
+            </div>
+
+            <p className="text-xs font-medium text-ink-muted">
+                Business Type
+            </p>
+
+            <p className="mt-2 font-semibold text-ink">
+                {profile.mainProduct}
+            </p>
+            </article>
+
+            {/* Business Location */}
+            <article className="rounded-2xl border border-pink-line bg-white p-5 shadow-sm">
+            <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-pink-pale text-pink-ink">
+                <MapPin size={19} />
+            </div>
+
+            <p className="text-xs font-medium text-ink-muted">
+                Business Location
+            </p>
+
+            <p className="mt-2 font-semibold text-ink">
+                {profile.location || "-"}
+            </p>
+            </article>
+
+        </div>
+        </section>
+
+
+        {/* BUSINESS DESCRIPTION */}
+        <section className="relative overflow-hidden rounded-2xl border border-pink-line bg-white p-5 shadow-sm sm:p-6">
+
+        {/* Decorative Background */}
+        <div className="pointer-events-none absolute -right-10 -top-12 h-36 w-36 rounded-full bg-pink-pale/80 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-12 left-1/3 h-28 w-28 rounded-full bg-blush-soft/60 blur-3xl" />
+
+        <div className="relative">
+            <div className="flex items-center justify-between gap-3">
+            <h2 className="font-bold text-ink-title">
+                About My Business
+            </h2>
+
+            <button
+                type="button"
+                onClick={handleOpenBusinessEdit}
+                className="text-sm font-semibold text-pink-ink transition hover:text-ink-title"
+            >
+                Edit <ChevronRight className="inline h-4 w-4" />
+            </button>
+            </div>
+
+            <p className="mt-3 text-sm leading-7 text-ink-muted">
+            {profile.description}
+            </p>
+        </div>
+        </section>
+
+        
+        
+        {/* BUSINESS ASSESSMENT */}
+        <section className="relative mb-8 overflow-hidden rounded-3xl border border-pink-line bg-white p-5 shadow-sm sm:p-7">
+
+          {/* Decorative Background */}
+          <div className="pointer-events-none absolute -right-12 -top-12 h-40 w-40 rounded-full bg-pink-pale/80 blur-3xl" />
+          <div className="pointer-events-none absolute -bottom-16 -left-10 h-40 w-40 rounded-full bg-blush-soft/70 blur-3xl" />
+
+          <div className="relative">
+
+            {/* Section Header */}
+            <div className="mb-6">
+              <span className="mb-3 inline-flex items-center rounded-full border border-pink-line bg-white/80 px-3 py-1 text-xs font-semibold tracking-wide text-pink-ink">
+                ✦ BUSINESS SNAPSHOT
+              </span>
+
+              <h2 className="text-xl font-bold text-ink-title">
+                Business Assessment
+              </h2>
+
+              <p className="mt-1 text-sm text-ink-muted">
+                Kenali cerita, tantangan, dan tujuan bisnismu berdasarkan hasil assessment.
+              </p>
+            </div>
+
+            {assessment ? (
+              <div className="space-y-4">
+
+                {/* Assessment Story */}
+                {assessment.story_text && (
+                  <div className="rounded-2xl border border-pink-line border-l-4 border-l-pink-ink bg-white/90 p-4 shadow-sm sm:p-5">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-ink-muted">
+                      Business Story
+                    </p>
+
+                    <p className="mt-3 whitespace-pre-line text-sm leading-7 text-ink">
+                      {assessment.story_text}
+                    </p>
+                  </div>
+                )}
+
+                {/* Assessment Highlights */}
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+
+                  {/* Biggest Challenge */}
+                  <article className="min-h-[125px] rounded-2xl border border-pink-line bg-gradient-to-br from-pink-pale/90 to-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+                    <div className="mb-3 h-1 w-10 rounded-full bg-gradient-to-r from-cta-from to-cta-to" />
+
+                    <p className="text-xs font-semibold uppercase tracking-wider text-ink-muted">
+                      Biggest Challenge
+                    </p>
+
+                    <p className="mt-3 text-sm font-semibold leading-6 text-ink">
+                      {assessment.biggest_challenge_other ||
+                        assessment.biggest_challenge ||
+                        "Belum diisi"}
+                    </p>
+                  </article>
+
+                  {/* Main Goal */}
+                  <article className="min-h-[125px] rounded-2xl border border-pink-line bg-gradient-to-br from-pink-pale/80 to-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+                    <div className="mb-3 h-1 w-10 rounded-full bg-pink-ink" />
+
+                    <p className="text-xs font-semibold uppercase tracking-wider text-ink-muted">
+                      Main Goal
+                    </p>
+
+                    <p className="mt-3 text-sm font-semibold leading-6 text-ink">
+                      {assessment.main_goal_other ||
+                        assessment.main_goal ||
+                        "Belum diisi"}
+                    </p>
+                  </article>
+
+                  {/* Sales Sources */}
+                  <article className="min-h-[125px] rounded-2xl border border-pink-line bg-gradient-to-br from-pink-pale/80 to-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+                    <div className="mb-3 h-1 w-10 rounded-full bg-pink-ink" />
+
+                    <p className="text-xs font-semibold uppercase tracking-wider text-ink-muted">
+                      Sales Sources
+                    </p>
+
+                    <p className="mt-3 text-sm font-semibold leading-6 text-ink">
+                      {assessment.sales_sources_other ||
+                        assessment.sales_sources ||
+                        "Belum diisi"}
+                    </p>
+                  </article>
+
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-white/80 bg-white/80 p-5">
+                <p className="text-sm text-ink-muted">
+                  Belum ada data Business Assessment.
+                </p>
+              </div>
+            )}
+          </div>
+        </section>
+
+
+        {/* BUSINESS CONDITIONS */}
+        <section>
+          <div className="mb-6">
+            <h2 className="text-xl font-bold text-ink-title">
+              Business Conditions
+            </h2>
+
+            <p className="mt-1 text-sm text-ink-muted">
+              Kenali kondisi keuangan dan keterbatasan bisnismu
+              sebelum menentukan strategi pertumbuhan.
+            </p>
+          </div>
+
+          {/* Condition Cards */}
+          <div className="grid gap-4 lg:grid-cols-2">
 
             {/* Financial Readiness Card */}
             <article className="rounded-2xl border border-border bg-white p-5 shadow-sm">
-                <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-brand-soft text-brand">
-                    <Wallet size={20} />
-                </div>
+              <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-brand-soft text-brand">
+                <Wallet size={20} />
+              </div>
 
-                <h3 className="font-bold text-brand">
-                    Financial Readiness
-                </h3>
+              <h3 className="font-bold text-ink-title">
+                Financial Readiness
+              </h3>
 
-                <p className="mt-2 text-sm leading-6 text-ink-muted">
-                    Informasi mengenai kondisi keuangan dan kemampuan
-                    bisnismu dalam mengalokasikan anggaran eksperimen.
-                </p>
+              <p className="mt-2 text-sm leading-6 text-ink-muted">
+                Informasi mengenai kondisi keuangan dan kemampuan
+                bisnismu dalam mengalokasikan anggaran eksperimen.
+              </p>
 
-            <div className="mt-5 flex justify-end">
+              <div className="mt-5 flex justify-end">
                 <button
-                    type="button"
-                    onClick={() => setIsFinancialViewOpen(true)}
-                    className="text-sm font-semibold text-brand transition hover:text-pink-ink"
+                  type="button"
+                  onClick={() => setIsFinancialViewOpen(true)}
+                  className="text-sm font-semibold text-pink-ink transition hover:opacity-80"
                 >
-                    View Details
-                    <ChevronRight className="ml-1 inline h-4 w-4" />
+                  View Details
+                  <ChevronRight className="ml-1 inline h-4 w-4" />
                 </button>
-            </div>
+              </div>
             </article>
 
             {/* Business Constraints Card */}
             <article className="rounded-2xl border border-border bg-white p-5 shadow-sm">
-                <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-blush-soft text-pink-ink">
-                    <Clock size={20} />
-                </div>
+              <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-blush-soft text-pink-ink">
+                <Clock size={20} />
+              </div>
 
-                <h3 className="font-bold text-brand">
-                    Business Constraints
-                </h3>
+              <h3 className="font-bold text-ink-title">
+                Business Constraints
+              </h3>
 
-                <p className="mt-2 text-sm leading-6 text-ink-muted">
-                    Informasi mengenai keterbatasan waktu, kemampuan
-                    digital, dan kapasitas tim dalam menjalankan eksperimen.
-                </p>
+              <p className="mt-2 text-sm leading-6 text-ink-muted">
+                Informasi mengenai keterbatasan waktu, kemampuan
+                digital, dan kapasitas tim dalam menjalankan eksperimen.
+              </p>
 
-                <div className="mt-5 flex justify-end">
-                    <button
-                    type="button"
-                    onClick={() => setIsConstraintsViewOpen(true)}
-                    className="text-sm font-semibold text-brand transition hover:text-pink-ink"
-                    >
-                    View Details
-                    <ChevronRight className="ml-1 inline h-4 w-4" />
-                    </button>
-                </div>
+              <div className="mt-5 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setIsConstraintsViewOpen(true)}
+                  className="text-sm font-semibold text-pink-ink transition hover:opacity-80"
+                >
+                  View Details
+                  <ChevronRight className="ml-1 inline h-4 w-4" />
+                </button>
+              </div>
             </article>
 
-        </div>
+          </div>
         </section>
+
+
+
 
         {/* MODAL EDIT PROFILE */}
         {isEditOpen && (
@@ -918,10 +1202,11 @@ const formatRupiah = (value) => {
             className="w-full max-w-lg rounded-3xl border border-border bg-white p-6 shadow-2xl sm:p-8"
             onClick={(event) => event.stopPropagation()}
             >
+                
             {/* Header modal */}
             <div className="mb-6 flex items-start justify-between">
                 <div>
-                <h2 className="text-xl font-bold text-brand">
+                <h2 className="text-xl font-bold text-ink-title">
                     Edit Profile
                 </h2>
 
@@ -934,7 +1219,7 @@ const formatRupiah = (value) => {
                 type="button"
                 onClick={() => setIsEditOpen(false)}
                 aria-label="Tutup modal"
-                className="rounded-full p-2 text-ink-muted transition hover:bg-lav-pale hover:text-brand"
+                className="rounded-full p-2 text-ink-muted transition hover:bg-lav-pale hover:text-pink-ink"
                 >
                 <X size={20} />
                 </button>
@@ -947,7 +1232,7 @@ const formatRupiah = (value) => {
                 <div>
                 <label
                     htmlFor="name"
-                    className="mb-2 block text-sm font-semibold text-brand"
+                    className="mb-2 block text-sm font-semibold text-ink-title"
                 >
                     Full Name
                 </label>
@@ -962,7 +1247,7 @@ const formatRupiah = (value) => {
                     minLength={3}
                     maxLength={100}
                     placeholder="Enter your full name"
-                    className="w-full rounded-xl border border-border bg-white px-4 py-3 text-sm text-gray-700 outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10"
+                    className="w-full rounded-xl border border-border bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10"
                 />
                 </div>
 
@@ -970,7 +1255,7 @@ const formatRupiah = (value) => {
                 <div>
                 <label
                     htmlFor="email"
-                    className="mb-2 block text-sm font-semibold text-brand"
+                    className="mb-2 block text-sm font-semibold text-ink-title"
                 >
                     Email Address
                 </label>
@@ -981,7 +1266,7 @@ const formatRupiah = (value) => {
                     type="email"
                     value={draftProfile.email}
                     readOnly
-                    className="w-full rounded-xl border border-border bg-white px-4 py-3 text-sm text-gray-700 outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10"
+                    className="w-full rounded-xl border border-border bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10"
                 />
                 </div>
 
@@ -989,7 +1274,7 @@ const formatRupiah = (value) => {
                 <div>
                 <label
                     htmlFor="phone"
-                    className="mb-2 block text-sm font-semibold text-brand"
+                    className="mb-2 block text-sm font-semibold text-ink-title"
                 >
                     Phone Number
                 </label>
@@ -1000,7 +1285,7 @@ const formatRupiah = (value) => {
                     type="tel"
                     value={draftProfile.phone}
                     onChange={handleInputChange}
-                    className="w-full rounded-xl border border-border bg-white px-4 py-3 text-sm text-gray-700 outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10"
+                    className="w-full rounded-xl border border-border bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10"
                 />
                 </div>
 
@@ -1009,14 +1294,14 @@ const formatRupiah = (value) => {
                 <button
                     type="button"
                     onClick={() => setIsEditOpen(false)}
-                    className="rounded-xl border border-border px-5 py-2.5 text-sm font-semibold text-ink-muted transition hover:bg-gray-50"
+                    className="rounded-xl border border-border px-5 py-2.5 text-sm font-semibold text-pink-ink transition hover:bg-pink-pale"
                 >
                     Cancel
                 </button>
 
                 <button
                     type="submit"
-                    className="rounded-xl bg-brand px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-90"
+                    className="rounded-xl bg-cta-to px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-90"
                 >
                     Save Changes
                 </button>
@@ -1027,74 +1312,6 @@ const formatRupiah = (value) => {
         </div>
         )}
         
-    {/* HIDE INI KALO GA KEPAKE */}
-        {/* BUSINESS PREFERENCES 
-        <div className="mt-6 rounded-3xl border border-border bg-white p-6 shadow-sm sm:p-8">*/}
-
-            {/* Header 
-            <div className="mb-6 flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-pink-pale text-pink-ink">
-                    <SlidersHorizontal size={22} />
-                </div>
-
-                <div>
-                    <h2 className="text-lg font-bold text-brand">
-                        Business Preferences
-                    </h2>
-                    <p className="text-sm text-ink-muted">
-                        Personalize your AI guidance experience.
-                    </p>
-                </div>
-            </div>
-
-            <div className="space-y-5"> */}
-
-                {/* Guidance Style Preview 
-                <div>
-                    <p className="text-sm font-semibold text-gray-800">
-                        Preferred Guidance Style
-                    </p>
-
-                    <p className="mt-1 text-sm text-ink-muted">
-                        {preferences.guidanceStyle === "step-by-step"
-                            ? "Step-by-step guidance"
-                            : preferences.guidanceStyle === "practical-examples"
-                            ? "Practical examples"
-                            : "Simple checklist"}
-                    </p>
-                </div>
-
-                <div className="border-t border-border" />*/}
-
-                {/* Experiment Approach Preview 
-                <div>
-                    <p className="text-sm font-semibold text-gray-800">
-                        Preferred Experiment Approach
-                    </p>
-
-                    <p className="mt-1 text-sm text-ink-muted">
-                        {preferences.experimentApproach === "small-gradual"
-                            ? "Small & gradual"
-                            : preferences.experimentApproach === "short-term"
-                            ? "Short-term results"
-                            : "Flexible approach"}
-                    </p>
-                </div>*/}
-
-                {/* Edit Button 
-                <div className="flex justify-end border-t border-border pt-5">
-                    <button
-                        type="button"
-                        onClick={handleOpenPreferences}
-                        className="rounded-xl border border-brand px-5 py-2.5 text-sm font-semibold text-brand transition hover:bg-lav-pale"
-                    >
-                        Edit Preferences
-                    </button>
-                </div>
-            </div>
-        </div>*/}
-        {/* HIDE SAMPE SINI KALO GA KEPAKE */}
-
         {/* ACCOUNT & SECURITY */}
         <div className="mt-6 rounded-3xl border border-border bg-white p-6 shadow-sm sm:p-8">
 
@@ -1105,7 +1322,7 @@ const formatRupiah = (value) => {
                 </div>
 
                 <div>
-                    <h2 className="text-lg font-bold text-brand">
+                    <h2 className="text-lg font-bold text-ink-title">
                         Account & Security
                     </h2>
                     <p className="text-sm text-ink-muted">
@@ -1119,7 +1336,7 @@ const formatRupiah = (value) => {
                 {/* Account Email */}
                 <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
                     <div>
-                        <p className="text-sm font-semibold text-gray-800">
+                        <p className="text-sm font-semibold text-ink">
                             Account Email
                         </p>
                         <p className="mt-1 text-sm text-ink-muted">
@@ -1137,7 +1354,7 @@ const formatRupiah = (value) => {
                 {/* Password */}
                 <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
                     <div>
-                        <p className="text-sm font-semibold text-gray-800">
+                        <p className="text-sm font-semibold text-ink">
                             Password
                         </p>
                         <p className="mt-1 text-sm text-ink-muted">
@@ -1148,7 +1365,7 @@ const formatRupiah = (value) => {
                     <button
                         type="button"
                         onClick={() => setIsPasswordModalOpen(true)}
-                        className="flex items-center gap-2 self-start rounded-xl border border-brand px-4 py-2 text-sm font-semibold text-brand transition hover:bg-lav-pale"
+                        className="flex items-center gap-2 self-start rounded-xl border border-pink-line px-4 py-2 text-sm font-semibold text-pink-ink transition hover:bg-pink-pale"
                     >
                         <LockKeyhole size={16} />
                         Change Password
@@ -1160,7 +1377,7 @@ const formatRupiah = (value) => {
                 {/* Sign Out */}
                 <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
                     <div>
-                        <p className="text-sm font-semibold text-gray-800">
+                        <p className="text-sm font-semibold text-ink">
                             Sign Out
                         </p>
                         <p className="mt-1 text-sm text-ink-muted">
@@ -1170,9 +1387,8 @@ const formatRupiah = (value) => {
 
                     <button
                         type="button"
-                        disabled
-                        title="Sign out will be enabled after authentication integration."
-                        className="flex cursor-not-allowed items-center gap-2 self-start rounded-xl border border-red-200 px-4 py-2 text-sm font-semibold text-red-400 opacity-70"
+                        onClick={handleSignOut}
+                        className="flex items-center gap-2 self-start rounded-xl border border-red-200 px-4 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50"
                     >
                         <LogOut size={16} />
                         Sign Out
@@ -1195,7 +1411,7 @@ const formatRupiah = (value) => {
                 {/* Header modal */}
                 <div className="mb-6 flex items-start justify-between">
                     <div>
-                    <h2 className="text-xl font-bold text-brand">
+                    <h2 className="text-xl font-bold text-ink-title">
                         Edit About My Business
                     </h2>
 
@@ -1222,7 +1438,7 @@ const formatRupiah = (value) => {
                     <div>
                         <label
                             htmlFor="businessDescription"
-                            className="mb-2 block text-sm font-semibold text-brand"
+                            className="mb-2 block text-sm font-semibold text-ink-title"
                         >
                             Business Description
                         </label>
@@ -1237,7 +1453,7 @@ const formatRupiah = (value) => {
                             maxLength={500}
                             required
                             placeholder="Ceritakan tentang bisnis kamu..."
-                            className="w-full resize-none rounded-xl border border-border bg-white px-4 py-3 text-sm leading-6 text-gray-700 outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10"
+                            className="w-full resize-none rounded-xl border border-border bg-white px-4 py-3 text-sm leading-6 text-ink outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10"
                         />
 
                         <p className="mt-2 text-right text-xs text-ink-muted">
@@ -1250,14 +1466,14 @@ const formatRupiah = (value) => {
                         <button
                             type="button"
                             onClick={() => setIsBusinessEditOpen(false)}
-                            className="rounded-xl border border-border px-5 py-2.5 text-sm font-semibold text-ink-muted transition hover:bg-gray-50"
+                            className="rounded-xl border border-border px-5 py-2.5 text-sm font-semibold text-pink-ink transition hover:bg-pink-pale"
                         >
                             Cancel
                         </button>
 
                         <button
                             type="submit"
-                            className="rounded-xl bg-brand px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-90"
+                            className="rounded-xl bg-cta-to px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-90"
                         >
                             Save Changes
                         </button>
@@ -1280,7 +1496,7 @@ const formatRupiah = (value) => {
                     {/* Header modal */}
                     <div className="mb-6 flex items-start justify-between">
                         <div>
-                            <h2 className="text-xl font-bold text-brand">
+                            <h2 className="text-xl font-bold text-ink-title">
                                 Edit Business Information
                             </h2>
 
@@ -1293,7 +1509,7 @@ const formatRupiah = (value) => {
                         type="button"
                         onClick={() => setIsBusinessInfoOpen(false)}
                         aria-label="Tutup modal"
-                        className="rounded-full p-2 text-ink-muted transition hover:bg-lav-pale hover:text-brand"
+                        className="rounded-full p-2 text-ink-muted transition hover:bg-lav-pale hover:text-pink-ink"
                     >
                         <X size={20} />
                     </button>
@@ -1305,7 +1521,7 @@ const formatRupiah = (value) => {
                     <div>
                         <label
                             htmlFor="businessName"
-                            className="mb-2 block text-sm font-semibold text-brand"
+                            className="mb-2 block text-sm font-semibold text-ink-title"
                         >
                             Business Name
                         </label>
@@ -1317,7 +1533,7 @@ const formatRupiah = (value) => {
                             value={draftBusinessInfo.businessName}
                             onChange={handleBusinessInfoChange}
                             required
-                            className="w-full rounded-xl border border-border px-4 py-3 text-sm text-gray-700 outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10"
+                            className="w-full rounded-xl border border-border px-4 py-3 text-sm text-ink outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10"
                         />
                     </div>
 
@@ -1325,7 +1541,7 @@ const formatRupiah = (value) => {
                     <div>
                         <label
                             htmlFor="category"
-                            className="mb-2 block text-sm font-semibold text-brand"
+                            className="mb-2 block text-sm font-semibold text-ink-title"
                         >
                             Business Category
                         </label>
@@ -1336,7 +1552,7 @@ const formatRupiah = (value) => {
                             value={draftBusinessInfo.category}
                             onChange={handleBusinessInfoChange}
                             required
-                            className="w-full rounded-xl border border-border bg-white px-4 py-3 text-sm text-gray-700 outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10"
+                            className="w-full rounded-xl border border-border bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10"
                         >
                             <option value="Fashion & Apparel">Fashion & Apparel</option>
                             <option value="Food & Beverage">Food & Beverage</option>
@@ -1352,7 +1568,7 @@ const formatRupiah = (value) => {
                     <div>
                         <label
                             htmlFor="location"
-                            className="mb-2 block text-sm font-semibold text-brand"
+                            className="mb-2 block text-sm font-semibold text-ink-title"
                         >
                             City
                         </label>
@@ -1365,7 +1581,7 @@ const formatRupiah = (value) => {
                             onChange={handleBusinessInfoChange}
                             required
                             placeholder="Contoh: Bandung"
-                            className="w-full rounded-xl border border-border px-4 py-3 text-sm text-gray-700 outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10"
+                            className="w-full rounded-xl border border-border px-4 py-3 text-sm text-ink outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10"
                         />
                     </div>
 
@@ -1373,7 +1589,7 @@ const formatRupiah = (value) => {
                     <div>
                         <label
                             htmlFor="yearStarted"
-                            className="mb-2 block text-sm font-semibold text-brand"
+                            className="mb-2 block text-sm font-semibold text-ink-title"
                         >
                             Business Age
                         </label>
@@ -1386,7 +1602,7 @@ const formatRupiah = (value) => {
                             onChange={handleBusinessInfoChange}
                             required
                             placeholder="1-3 tahun"
-                            className="w-full rounded-xl border border-border px-4 py-3 text-sm text-gray-700 outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10"
+                            className="w-full rounded-xl border border-border px-4 py-3 text-sm text-ink outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10"
                         />
                     </div>
 
@@ -1394,7 +1610,7 @@ const formatRupiah = (value) => {
                     <div>
                         <label
                             htmlFor="mainProduct"
-                            className="mb-2 block text-sm font-semibold text-brand"
+                            className="mb-2 block text-sm font-semibold text-ink-title"
                         >
                             Business Type
                         </label>
@@ -1407,7 +1623,7 @@ const formatRupiah = (value) => {
                             onChange={handleBusinessInfoChange}
                             required
                             placeholder="Contoh: Produk"
-                            className="w-full rounded-xl border border-border px-4 py-3 text-sm text-gray-700 outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10"
+                            className="w-full rounded-xl border border-border px-4 py-3 text-sm text-ink outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10"
                         />
                     </div>
 
@@ -1423,7 +1639,7 @@ const formatRupiah = (value) => {
 
                         <button
                             type="submit"
-                            className="rounded-xl bg-brand px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-90"
+                            className="rounded-xl bg-cta-to px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-90"
                         >
                             Save Changes
                         </button>
@@ -1447,7 +1663,7 @@ const formatRupiah = (value) => {
                         {/* Header */}
                         <div className="mb-6 flex items-start justify-between">
                             <div>
-                                <h2 className="text-xl font-bold text-brand">
+                                <h2 className="text-xl font-bold text-ink-title">
                                     Change Password
                                 </h2>
                                 <p className="mt-1 text-sm text-ink-muted">
@@ -1469,7 +1685,7 @@ const formatRupiah = (value) => {
 
                             {/* Current Password */}
                             <div>
-                                <label className="mb-2 block text-sm font-semibold text-brand">
+                                <label className="mb-2 block text-sm font-semibold text-ink-title">
                                     Current Password
                                 </label>
 
@@ -1500,7 +1716,7 @@ const formatRupiah = (value) => {
 
                             {/* New Password */}
                             <div>
-                                <label className="mb-2 block text-sm font-semibold text-brand">
+                                <label className="mb-2 block text-sm font-semibold text-ink-title">
                                     New Password
                                 </label>
 
@@ -1536,7 +1752,7 @@ const formatRupiah = (value) => {
 
                             {/* Confirm Password */}
                             <div>
-                                <label className="mb-2 block text-sm font-semibold text-brand">
+                                <label className="mb-2 block text-sm font-semibold text-ink-title">
                                     Confirm New Password
                                 </label>
 
@@ -1577,7 +1793,7 @@ const formatRupiah = (value) => {
 
                                 <button
                                     type="submit"
-                                    className="rounded-xl bg-brand px-5 py-2.5 text-sm font-semibold text-white transition hover:opacity-90"
+                                    className="rounded-xl bg-cta-to px-5 py-2.5 text-sm font-semibold text-white transition hover:opacity-90"
                                 >
                                     Save Changes
                                 </button>
@@ -1587,113 +1803,7 @@ const formatRupiah = (value) => {
                     </div>
                 </div>
             )}
-            
-            {/* HIDE INI KALO GA KEPAKE */}
-            {/* MODAL BUSINESS PREFERENCES */}
-            {isPreferencesOpen && (
-                <div
-                    className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
-                    onClick={() => setIsPreferencesOpen(false)}
-                >
-                    <div
-                        className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl sm:p-8"
-                        onClick={(event) => event.stopPropagation()}
-                    >
-                        {/* Header */}
-                        <div className="mb-6 flex items-start justify-between">
-                            <div>
-                                <h2 className="text-xl font-bold text-brand">
-                                    Edit Business Preferences
-                                </h2>
-                                <p className="mt-1 text-sm text-ink-muted">
-                                    Customize how you receive AI guidance.
-                                </p>
-                            </div>
-
-                            <button
-                                type="button"
-                                onClick={() => setIsPreferencesOpen(false)}
-                                aria-label="Close modal"
-                                className="rounded-full p-2 text-ink-muted hover:bg-lav-pale"
-                            >
-                                <X size={20} />
-                            </button>
-                        </div>
-
-                        <form onSubmit={handleSavePreferences} className="space-y-5">
-
-                            {/* Guidance Style */}
-                            <div>
-                                <label className="mb-2 block text-sm font-semibold text-brand">
-                                    Preferred Guidance Style
-                                </label>
-
-                                <select
-                                    name="guidanceStyle"
-                                    value={draftPreferences.guidanceStyle}
-                                    onChange={handlePreferencesChange}
-                                    className="w-full rounded-xl border border-border bg-white px-4 py-3 text-sm outline-none focus:border-brand"
-                                >
-                                    <option value="step-by-step">
-                                        Step-by-step guidance
-                                    </option>
-                                    <option value="practical-examples">
-                                        Practical examples
-                                    </option>
-                                    <option value="simple-checklist">
-                                        Simple checklist
-                                    </option>
-                                </select>
-                            </div>
-
-                            {/* Experiment Approach */}
-                            <div>
-                                <label className="mb-2 block text-sm font-semibold text-brand">
-                                    Preferred Experiment Approach
-                                </label>
-
-                                <select
-                                    name="experimentApproach"
-                                    value={draftPreferences.experimentApproach}
-                                    onChange={handlePreferencesChange}
-                                    className="w-full rounded-xl border border-border bg-white px-4 py-3 text-sm outline-none focus:border-brand"
-                                >
-                                    <option value="small-gradual">
-                                        Small & gradual
-                                    </option>
-                                    <option value="short-term">
-                                        Short-term results
-                                    </option>
-                                    <option value="flexible">
-                                        Flexible approach
-                                    </option>
-                                </select>
-                            </div>
-
-                            {/* Action Buttons */}
-                            <div className="flex justify-end gap-3 border-t border-border pt-5">
-                                <button
-                                    type="button"
-                                    onClick={() => setIsPreferencesOpen(false)}
-                                    className="rounded-xl border border-border px-5 py-2.5 text-sm font-semibold text-ink-muted hover:bg-gray-50"
-                                >
-                                    Cancel
-                                </button>
-
-                                <button
-                                    type="submit"
-                                    className="rounded-xl bg-brand px-5 py-2.5 text-sm font-semibold text-white hover:opacity-90"
-                                >
-                                    Save Preferences
-                                </button>
-                            </div>
-
-                        </form>
-                    </div>
-                </div>
-            )}
-            {/* HIDE SAMPE SINI KALO GA KEPAKE */}
-
+    
             {/* Modal View Financial Readiness */}
             {isFinancialViewOpen && (
                 <div
@@ -1701,13 +1811,15 @@ const formatRupiah = (value) => {
                     onClick={() => setIsFinancialViewOpen(false)}
                 >
                     <div
-                        className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl"
+                        className="relative isolate w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-xl"
                         onClick={(e) => e.stopPropagation()}
                     >
+
+                        <div className="relative z-10 max-h-[85vh] overflow-y-auto overscroll-contain p-6">
                         {/* Modal Header */}
                         <div className="mb-6 flex items-center justify-between">
                             <div>
-                                <h2 className="text-lg font-bold text-brand">
+                                <h2 className="text-lg font-bold text-ink-title">
                                     Financial Readiness
                                 </h2>
                                 <p className="mt-1 text-sm text-ink-muted">
@@ -1732,7 +1844,7 @@ const formatRupiah = (value) => {
                             <button
                                 type="button"
                                 onClick={() => setIsFinancialViewOpen(false)}
-                                className="rounded-lg p-2 text-ink-muted transition hover:bg-gray-100"
+                                className="rounded-lg p-2 text-ink-muted transition hover:bg-lav-pale hover:text-pink-ink"
                                 aria-label="Close modal"
                             >
                                 <X size={20} />
@@ -1741,50 +1853,135 @@ const formatRupiah = (value) => {
 
                         {/* Modal Content */}
                         {financialReadiness ? (
-                            <div className="space-y-4">
-                                <div className="rounded-xl bg-[#f7f6ff] p-4">
-                                    <p className="text-sm text-ink-muted">
-                                        Monthly Revenue
+                            <div className="space-y-5">
+
+                                {/* Recommended Experiment Budget */}
+                                <div className="rounded-2xl border border-pink-line bg-pink-pale/90 p-5">
+                                    <p className="text-sm font-medium text-ink-muted">
+                                        Recommended Experiment Budget
                                     </p>
-                                    <p className="mt-1 font-semibold text-brand">
-                                        {formatRupiah(financialReadiness.monthly_revenue)}
+
+                                    <p className="mt-2 text-2xl font-bold text-ink-title">
+                                        {financialReadiness.recommended_budge != null
+                                            ? formatRupiah(financialReadiness.recommended_budge)
+                                            : "Belum tersedia"}
+                                    </p>
+
+                                    <p className="mt-2 text-xs leading-5 text-ink-muted">
+                                        Anggaran yang direkomendasikan untuk menjalankan eksperimen bisnis.
                                     </p>
                                 </div>
 
-                                <div className="rounded-xl bg-[#f7f6ff] p-4">
-                                    <p className="text-sm text-ink-muted">
-                                        Monthly Operating Cost
+                                {/* Affordable Loss */}
+                                <div className="rounded-xl border border-pink-line bg-white/90 p-4">
+                                    <p className="text-sm font-medium text-ink-muted">
+                                        Affordable Loss
                                     </p>
-                                    <p className="mt-1 font-semibold text-brand">
-                                        {formatRupiah(financialReadiness.monthly_operating_co)}
+
+                                    <p className="mt-1 text-xl font-bold text-ink-title">
+                                        {financialReadiness.affordable_loss != null
+                                            ? formatRupiah(financialReadiness.affordable_loss)
+                                            : "Belum tersedia"}
+                                    </p>
+
+                                    <p className="mt-2 text-xs leading-5 text-ink-muted">
+                                        Batas maksimal kerugian yang masih dapat ditoleransi
+                                        berdasarkan kondisi keuangan bisnismu.
                                     </p>
                                 </div>
 
-                                <div className="rounded-xl bg-[#f7f6ff] p-4">
-                                    <p className="text-sm text-ink-muted">
-                                        Household Need
-                                    </p>
-                                    <p className="mt-1 font-semibold text-brand">
-                                        {formatRupiah(financialReadiness.household_need)}
-                                    </p>
+                                {/* Financial Breakdown */}
+                                <div>
+                                    <h3 className="mb-3 text-sm font-bold text-ink-title">
+                                        Financial Breakdown
+                                    </h3>
+
+                                    <div className="grid gap-3 sm:grid-cols-2">
+                                        {[
+                                            {
+                                                label: "Monthly Revenue",
+                                                value: financialReadiness.monthly_revenue != null
+                                                    ? formatRupiah(financialReadiness.monthly_revenue)
+                                                    : "Belum tersedia",
+                                            },
+                                            {
+                                                label: "Monthly Operating Cost",
+                                                value: financialReadiness.monthly_operating_cost != null
+                                                    ? formatRupiah(financialReadiness.monthly_operating_cost)
+                                                    : "Belum tersedia",
+                                            },
+                                            {
+                                                label: "Business Profit",
+                                                value: financialReadiness.business_profit != null
+                                                    ? formatRupiah(financialReadiness.business_profit)
+                                                    : "Belum tersedia",
+                                            },
+                                            {
+                                                label: "Household Need",
+                                                value: financialReadiness.household_need != null
+                                                    ? formatRupiah(financialReadiness.household_need)
+                                                    : "Belum tersedia",
+                                            },
+                                            {
+                                                label: "Free Surplus",
+                                                value: financialReadiness.free_surplus != null
+                                                    ? formatRupiah(financialReadiness.free_surplus)
+                                                    : "Belum tersedia",
+                                            },
+                                            {
+                                                label: "Product Margin",
+                                                value: financialReadiness.product_margin_pct != null
+                                                    ? `${financialReadiness.product_margin_pct}%`
+                                                    : "Belum tersedia",
+                                            },
+                                            {
+                                                label: "Cash Reserve",
+                                                value: financialReadiness.cash_reserve != null
+                                                    ? formatRupiah(financialReadiness.cash_reserve)
+                                                    : "Belum tersedia",
+                                            },
+                                            {
+                                                label: "Willingness to Lose",
+                                                value: financialReadiness.willingness_to_lose != null
+                                                    ? formatRupiah(financialReadiness.willingness_to_lose)
+                                                    : "Belum tersedia",
+                                            },
+                                        ].map((item) => (
+                                            <div
+                                                key={item.label}
+                                                className="rounded-xl border border-pink-line bg-pink-pale/60 p-4"
+                                            >
+                                                <p className="text-sm text-ink-muted">
+                                                    {item.label}
+                                                </p>
+                                                <p className="mt-1 font-semibold text-ink">
+                                                    {item.value}
+                                                </p>
+                                            </div>
+                                        ))}
+                                    </div>
                                 </div>
 
-                                <div className="rounded-xl bg-[#f7f6ff] p-4">
-                                    <p className="text-sm text-ink-muted">
-                                        Product Margin
-                                    </p>
-                                    <p className="mt-1 font-semibold text-brand">
-                                        {financialReadiness.product_margin_pct ?? "-"}%
-                                    </p>
-                                </div>
+                                {/* AI Financial Narrative */}
+                                {financialReadiness.ai_narrative && (
+                                    <div className="rounded-xl border border-pink-line bg-white/90 p-4">
+                                        <p className="text-sm font-bold text-ink-title">
+                                            Financial Insight
+                                        </p>
+                                        <p className="mt-2 text-sm leading-6 text-ink-muted">
+                                            {financialReadiness.ai_narrative}
+                                        </p>
+                                    </div>
+                                )}
                             </div>
+
                         ) : (
                             <div className="rounded-xl border border-dashed border-border p-6 text-center">
                                 <Wallet
                                     size={32}
-                                    className="mx-auto mb-3 text-brand"
+                                    className="mx-auto mb-3 text-pink-ink"
                                 />
-                                <p className="font-semibold text-brand">
+                                <p className="font-semibold text-pink-ink">
                                     Financial Readiness belum tersedia
                                 </p>
                                 <p className="mt-2 text-sm leading-6 text-ink-muted">
@@ -1801,10 +1998,11 @@ const formatRupiah = (value) => {
                             <button
                                 type="button"
                                 onClick={() => setIsFinancialViewOpen(false)}
-                                className="rounded-xl bg-brand px-5 py-2.5 text-sm font-semibold text-white transition hover:opacity-90"
+                                className="rounded-xl bg-cta-to px-5 py-2.5 text-sm font-semibold text-white transition hover:opacity-90"
                             >
                                 Close
                             </button>
+                        </div>
                         </div>
                     </div>
                 </div>
@@ -1824,7 +2022,7 @@ const formatRupiah = (value) => {
                         {/* Modal Header */}
                         <div className="mb-6 flex items-center justify-between">
                             <div>
-                                <h2 className="text-lg font-bold text-brand">
+                                <h2 className="text-lg font-bold text-ink-title">
                                     Business Constraints
                                 </h2>
                                 <p className="mt-1 text-sm text-ink-muted">
@@ -1835,7 +2033,7 @@ const formatRupiah = (value) => {
                             <button
                                 type="button"
                                 onClick={() => setIsConstraintsViewOpen(false)}
-                                className="rounded-lg p-2 text-ink-muted transition hover:bg-gray-100"
+                                className="rounded-lg p-2 text-ink-muted transition hover:bg-lav-pale hover:text-pink-ink"
                                 aria-label="Close modal"
                             >
                                 <X size={20} />
@@ -1849,7 +2047,7 @@ const formatRupiah = (value) => {
                                     <p className="text-sm text-ink-muted">
                                         Available Time per Week
                                     </p>
-                                    <p className="mt-1 font-semibold text-brand">
+                                    <p className="mt-1 font-semibold text-ink">
                                         {businessConstraints.hours_per_week ?? "-"} jam
                                     </p>
                                 </div>
@@ -1858,7 +2056,7 @@ const formatRupiah = (value) => {
                                     <p className="text-sm text-ink-muted">
                                         Digital Skill
                                     </p>
-                                    <p className="mt-1 font-semibold text-brand">
+                                    <p className="mt-1 font-semibold text-ink">
                                         {businessConstraints.digital_skill || "-"}
                                     </p>
                                 </div>
@@ -1867,7 +2065,7 @@ const formatRupiah = (value) => {
                                     <p className="text-sm text-ink-muted">
                                         Team Size
                                     </p>
-                                    <p className="mt-1 font-semibold text-brand">
+                                    <p className="mt-1 font-semibold text-ink">
                                         {businessConstraints.team_size ?? "-"} orang
                                     </p>
                                 </div>
@@ -1893,26 +2091,8 @@ const formatRupiah = (value) => {
                         <div className="mt-6 flex justify-end gap-3">
                             <button
                                 type="button"
-                                onClick={() => {
-                                    setDraftConstraints({
-                                        hours_per_week: businessConstraints?.hours_per_week ?? "",
-                                        digital_skill: businessConstraints?.digital_skill ?? "",
-                                        team_size: businessConstraints?.team_size ?? "",
-                                    });
-
-                                    setConstraintsError("");
-                                    setIsConstraintsViewOpen(false);
-                                    setIsConstraintsEditOpen(true);
-                                }}
-                                className="rounded-xl border border-brand px-5 py-2.5 text-sm font-semibold text-brand transition hover:bg-[#fff5f8]"
-                            >
-                                Edit Details
-                            </button>
-
-                            <button
-                                type="button"
                                 onClick={() => setIsConstraintsViewOpen(false)}
-                                className="rounded-xl bg-brand px-5 py-2.5 text-sm font-semibold text-white transition hover:opacity-90"
+                                className="rounded-xl bg-cta-to px-5 py-2.5 text-sm font-semibold text-white transition hover:opacity-90"
                             >
                                 Close
                             </button>
@@ -1920,132 +2100,6 @@ const formatRupiah = (value) => {
                     </div>
                 </div>
             )}
-            {/* AKHIR MODAL VIEW BUSINESS CONSTRAINTS */}
-
-            {/* Modal EDIT Business Constraints */}
-            {isConstraintsEditOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-                    <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
-
-                        {/* Modal Header */}
-                        <div className="mb-6">
-                            <h2 className="text-lg font-bold text-brand">
-                                Edit Business Constraints
-                            </h2>
-                            <p className="mt-1 text-sm text-ink-muted">
-                                Sesuaikan informasi dengan kondisi bisnismu saat ini.
-                            </p>
-                        </div>
-
-                        {/* Form */}
-                        <div className="space-y-5">
-
-                            {/* Available Time */}
-                            <div>
-                                <label className="mb-2 block text-sm font-semibold text-brand">
-                                    Available Time per Week
-                                </label>
-
-                                <input
-                                    type="number"
-                                    min="0"
-                                    value={draftConstraints.hours_per_week}
-                                    onChange={(e) =>
-                                        setDraftConstraints({
-                                            ...draftConstraints,
-                                            hours_per_week: e.target.value,
-                                        })
-                                    }
-                                    placeholder="Contoh: 20"
-                                    className="w-full rounded-xl border border-border px-4 py-3 text-sm outline-none focus:border-brand"
-                                />
-
-                                <p className="mt-1 text-xs text-ink-muted">
-                                    Berapa jam per minggu yang bisa dialokasikan untuk bisnis?
-                                </p>
-                            </div>
-
-                            {/* Digital Skill */}
-                            <div>
-                                <label className="mb-2 block text-sm font-semibold text-brand">
-                                    Digital Skill
-                                </label>
-
-                                <select
-                                    value={draftConstraints.digital_skill}
-                                    onChange={(e) =>
-                                        setDraftConstraints({
-                                            ...draftConstraints,
-                                            digital_skill: e.target.value,
-                                        })
-                                    }
-                                    className="w-full rounded-xl border border-border bg-white px-4 py-3 text-sm outline-none focus:border-brand"
-                                >
-                                    <option value="">Pilih kemampuan digital</option>
-                                    <option value="Beginner">Beginner</option>
-                                    <option value="Intermediate">Intermediate</option>
-                                    <option value="Advanced">Advanced</option>
-                                </select>
-                            </div>
-
-                            {/* Team Size */}
-                            <div>
-                                <label className="mb-2 block text-sm font-semibold text-brand">
-                                    Team Size
-                                </label>
-
-                                <input
-                                    type="number"
-                                    min="1"
-                                    value={draftConstraints.team_size}
-                                    onChange={(e) =>
-                                        setDraftConstraints({
-                                            ...draftConstraints,
-                                            team_size: e.target.value,
-                                        })
-                                    }
-                                    placeholder="Contoh: 3"
-                                    className="w-full rounded-xl border border-border px-4 py-3 text-sm outline-none focus:border-brand"
-                                />
-
-                                <p className="mt-1 text-xs text-ink-muted">
-                                    Jumlah orang yang terlibat dalam menjalankan bisnis.
-                                </p>
-                            </div>
-                        </div>
-
-                        {/* Error Message */}
-                        {constraintsError && (
-                            <p className="mt-4 text-sm text-red-500">
-                                {constraintsError}
-                            </p>
-                        )}
-
-                        {/* Modal Footer */}
-                        <div className="mt-6 flex justify-end gap-3">
-                            <button
-                                type="button"
-                                onClick={() => setIsConstraintsEditOpen(false)}
-                                disabled={isSavingConstraints}
-                                className="rounded-xl border border-border px-5 py-2.5 text-sm font-semibold text-ink-muted"
-                            >
-                                Cancel
-                            </button>
-
-                            <button
-                                type="button"
-                                onClick={handleSaveConstraints}
-                                disabled={isSavingConstraints}
-                                className="rounded-xl bg-brand px-5 py-2.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
-                            >
-                                {isSavingConstraints ? "Saving..." : "Save Changes"}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-            {/* AKHIR Modal EDIT Business Constraints */}
-
       </div>
     </>
   );
