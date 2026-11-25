@@ -155,6 +155,7 @@ def run_recommendation_pipeline(
         playbooks=playbooks,
         diagnosis_labels=diagnosis_labels,
         recommended_budget=recommended_budget,
+        growth_level=financial.get("growth_level"),
     )
 
     eligible_playbooks = eligibility_result["eligible"]
