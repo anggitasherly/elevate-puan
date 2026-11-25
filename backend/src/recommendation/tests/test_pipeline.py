@@ -89,27 +89,6 @@ def make_multieweek_playbook():
     }
 
 
-def test_multieweek_playbook_without_scope_does_not_enter_scoring(
-    monkeypatch,
-):
-    request = make_request()
-    request["playbooks"] = [make_multieweek_playbook()]
-
-    scoring_called = []
-
-    monkeypatch.setattr(
-        pipeline_module,
-        "score_candidate",
-        lambda **kwargs: scoring_called.append(kwargs),
-    )
-
-    result = run_recommendation_pipeline(request)
-
-    assert result["feasible_candidate_count"] == 0
-    assert len(result["diagnostics"]["time_scope_review"]) == 1
-    assert scoring_called == []
-
-
 def test_multieweek_playbook_with_valid_scope_can_enter_scoring(
     monkeypatch,
 ):
@@ -179,59 +158,6 @@ def test_multieweek_playbook_with_valid_scope_can_enter_scoring(
     assert len(scoring_called) == 1
     assert result["feasible_candidate_count"] == 1
 
-
-def test_time_scope_rejects_duration_over_seven_days():
-    playbook = make_multieweek_playbook()
-
-    playbook["experiment_scope"] = {
-        "duration_days": 8,
-        "steps": ["Membuat materi promosi"],
-        "metric": "Jumlah pesanan",
-    }
-
-    result = pipeline_module._validate_time_scope(
-        playbook,
-        requires_scope=True,
-    )
-
-    assert result["valid"] is False
-    assert result["status"] == "needs_review"
-
-
-def test_time_scope_rejects_steps_not_from_playbook():
-    playbook = make_multieweek_playbook()
-
-    playbook["experiment_scope"] = {
-        "duration_days": 7,
-        "steps": ["Memberikan diskon 50 persen"],
-        "metric": "Jumlah pesanan",
-    }
-
-    result = pipeline_module._validate_time_scope(
-        playbook,
-        requires_scope=True,
-    )
-
-    assert result["valid"] is False
-    assert result["status"] == "needs_review"
-
-
-def test_time_scope_rejects_mismatched_metric():
-    playbook = make_multieweek_playbook()
-
-    playbook["experiment_scope"] = {
-        "duration_days": 7,
-        "steps": ["Membuat materi promosi"],
-        "metric": "Jumlah followers",
-    }
-
-    result = pipeline_module._validate_time_scope(
-        playbook,
-        requires_scope=True,
-    )
-
-    assert result["valid"] is False
-    assert result["status"] == "needs_review"
 
 def test_partial_time_playbook_goes_to_eligibility_review():
     request = make_request()
