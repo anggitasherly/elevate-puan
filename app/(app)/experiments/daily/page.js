@@ -25,7 +25,7 @@ const EXPERIMENT_DURATION_DAYS = 7;
  * false = tampilkan layar error seperti biasa.
  * Ubah ke false saat aplikasi sudah dipakai pengguna sungguhan.
  */
-const AUTO_PREVIEW_FALLBACK = true;
+const AUTO_PREVIEW_FALLBACK = false;
 
 const STATUS = {
   ACTIVE: "active",
@@ -1028,6 +1028,8 @@ export default function Daily() {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  // true kalau server menjawab "eksperimen aktif tidak ditemukan" (404)
+  const [noActive, setNoActive] = useState(false);
   const [actionError, setActionError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -1284,6 +1286,7 @@ export default function Daily() {
             // Data asli gagal dimuat -> tampilkan contoh (tanpa database)
             applyPreview(friendlyReason(err));
           } else if (mounted) {
+            setNoActive(err?.status === 404);
             setError(friendlyReason(err));
           }
         }
@@ -1933,7 +1936,7 @@ export default function Daily() {
           <div className="text-4xl">⚠️</div>
 
           <h2 className="mt-3 text-lg font-extrabold text-[#19347c]">
-            Data belum tersedia
+            {noActive ? "Belum ada eksperimen aktif" : "Data belum tersedia"}
           </h2>
 
           <p className="mt-2 text-sm leading-relaxed text-[#7c849d]">
@@ -1941,12 +1944,21 @@ export default function Daily() {
           </p>
 
           <div className="mt-5 flex flex-col justify-center gap-2 sm:flex-row">
-            <button
-              onClick={kembali}
-              className="rounded-full bg-[#684bd0] px-6 py-3 text-sm font-bold text-white"
-            >
-              Kembali
-            </button>
+            {noActive ? (
+              <button
+                onClick={() => router.push("/opportunity-library")}
+                className="rounded-full bg-[#684bd0] px-6 py-3 text-sm font-bold text-white"
+              >
+                Pilih strategi
+              </button>
+            ) : (
+              <button
+                onClick={kembali}
+                className="rounded-full bg-[#684bd0] px-6 py-3 text-sm font-bold text-white"
+              >
+                Kembali
+              </button>
+            )}
 
             <button
               onClick={bukaPreview}

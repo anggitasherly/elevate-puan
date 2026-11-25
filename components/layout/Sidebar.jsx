@@ -23,7 +23,7 @@ const menuItems = [
   },
   {
     label: "My Experiment",
-    href: "/experiments/rancangan_experimen",
+    href: "/experiments/daily",
     match: "/experiments",
     icon: FlaskConical,
   },
