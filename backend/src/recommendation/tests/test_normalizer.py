@@ -1,4 +1,4 @@
-
+from app.engines.eligibility import check_time
 from app.engines.normalizer import (
     normalize_skill,
     normalize_team_size,
@@ -77,3 +77,23 @@ def test_normalize_actual_playbook_skill_variants():
     assert normalize_skill("rendah–sedang") == "low_medium"
     assert normalize_skill("medium") == "medium"
 
+
+def test_normalize_time_needed_with_plus_sign():
+    result = normalize_time_needed("11+ jam/minggu")
+
+    assert result["status"] == "parsed"
+    assert result["max_hours_per_week"] == 11
+    assert result["hours_per_week"] == 11
+
+
+def test_time_needed_with_plus_sign_is_accepted_by_eligibility():
+    time_ok, _ = check_time({"time_needed": "11+ jam/minggu"})
+
+    assert time_ok is True
+
+
+def test_time_needed_plain_range_still_parsed():
+    result = normalize_time_needed("5-10 jam/minggu")
+
+    assert result["status"] == "parsed"
+    assert result["max_hours_per_week"] == 10

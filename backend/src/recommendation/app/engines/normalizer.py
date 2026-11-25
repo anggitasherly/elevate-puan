@@ -13,9 +13,11 @@ def _number(value: str) -> float:
     return float(value.replace(",", "."))
 
 
+# Tanda "+" setelah angka (contoh "11+ jam/minggu") berarti "sekian atau lebih".
+# Angkanya dipakai sebagai kebutuhan minimum.
 def _range_match(text: str, unit_pattern: str):
     return re.search(
-        rf"(?P<minimum>\d+(?:[.,]\d+)?)\s*(?:[-–—]\s*(?P<maximum>\d+(?:[.,]\d+)?))?\s*{unit_pattern}",
+        rf"(?P<minimum>\d+(?:[.,]\d+)?)\s*\+?\s*(?:[-–—]\s*(?P<maximum>\d+(?:[.,]\d+)?))?\s*{unit_pattern}",
         text,
         flags=re.IGNORECASE,
     )
