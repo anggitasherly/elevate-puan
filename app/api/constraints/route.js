@@ -219,10 +219,12 @@ export async function POST(request) {
       ">10 jam": 12,
     };
 
+    // Angka perwakilan untuk tiap pilihan. Batas kategori yang disepakati:
+    // solo = 1 orang, tim kecil = 2 sampai 5 orang, tim besar = lebih dari 5 orang.
     const teamSizeMap = {
       "Saya Sendiri (Solo)": 1,
       "Tim Kecil": 2,
-      "Tim Besar": 5,
+      "Tim Besar": 6,
     };
 
     const payload = {

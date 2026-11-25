@@ -8,6 +8,7 @@ import {
   getOptions,
   getOptionLabel,
   getDigitalSkillLabel,
+  getTeamLabel,
 } from "@/lib/assessment-labels";
 import { useRouter } from "next/navigation";
 import {
@@ -2085,7 +2086,7 @@ const handleAvatarChange = async (event) => {
                                         Team Size
                                     </p>
                                     <p className="mt-1 font-semibold text-ink">
-                                        {businessConstraints.team_size ?? "-"} orang
+                                        {getTeamLabel(businessConstraints.team_size) || "-"}
                                     </p>
                                 </div>
                             </div>
