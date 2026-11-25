@@ -4,6 +4,11 @@ import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase"
+import {
+  getOptions,
+  getOptionLabel,
+  getDigitalSkillLabel,
+} from "@/lib/assessment-labels";
 import { useRouter } from "next/navigation";
 import {
   Sparkles,
@@ -931,7 +936,7 @@ const handleAvatarChange = async (event) => {
             </p>
 
             <p className="mt-2 font-semibold text-ink">
-                {profile.category}
+                {getOptionLabel("business_category", profile.category)}
             </p>
             </article>
 
@@ -946,7 +951,7 @@ const handleAvatarChange = async (event) => {
             </p>
 
             <p className="mt-2 font-semibold text-ink">
-                {profile.yearStarted}
+                {getOptionLabel("business_age", profile.yearStarted)}
             </p>
             </article>
 
@@ -961,7 +966,7 @@ const handleAvatarChange = async (event) => {
             </p>
 
             <p className="mt-2 font-semibold text-ink">
-                {profile.mainProduct}
+                {profile.mainProduct || "-"}
             </p>
             </article>
 
@@ -1067,7 +1072,10 @@ const handleAvatarChange = async (event) => {
 
                     <p className="mt-3 text-sm font-semibold leading-6 text-ink">
                       {assessment.biggest_challenge_other ||
-                        assessment.biggest_challenge ||
+                        getOptionLabel(
+                          "biggest_challenge",
+                          assessment.biggest_challenge
+                        ) ||
                         "Belum diisi"}
                     </p>
                   </article>
@@ -1082,7 +1090,7 @@ const handleAvatarChange = async (event) => {
 
                     <p className="mt-3 text-sm font-semibold leading-6 text-ink">
                       {assessment.main_goal_other ||
-                        assessment.main_goal ||
+                        getOptionLabel("main_goal", assessment.main_goal) ||
                         "Belum diisi"}
                     </p>
                   </article>
@@ -1097,7 +1105,10 @@ const handleAvatarChange = async (event) => {
 
                     <p className="mt-3 text-sm font-semibold leading-6 text-ink">
                       {assessment.sales_sources_other ||
-                        assessment.sales_sources ||
+                        getOptionLabel(
+                          "sales_sources",
+                          assessment.sales_sources
+                        ) ||
                         "Belum diisi"}
                     </p>
                   </article>
@@ -1554,13 +1565,14 @@ const handleAvatarChange = async (event) => {
                             required
                             className="w-full rounded-xl border border-border bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10"
                         >
-                            <option value="Fashion & Apparel">Fashion & Apparel</option>
-                            <option value="Food & Beverage">Food & Beverage</option>
-                            <option value="Beauty & Personal Care">Beauty & Personal Care</option>
-                            <option value="Crafts & Handmade">Crafts & Handmade</option>
-                            <option value="Agriculture">Agriculture</option>
-                            <option value="Services">Services</option>
-                            <option value="Other">Other</option>
+                            <option value="" disabled>
+                                Pilih kategori
+                            </option>
+                            {getOptions("business_category").map((option) => (
+                                <option key={option.value} value={option.value}>
+                                    {option.label}
+                                </option>
+                            ))}
                         </select>
                     </div>
 
@@ -1594,16 +1606,23 @@ const handleAvatarChange = async (event) => {
                             Business Age
                         </label>
 
-                        <input
+                        <select
                             id="yearStarted"
                             name="yearStarted"
-                            type="text"
                             value={draftBusinessInfo.yearStarted}
                             onChange={handleBusinessInfoChange}
                             required
-                            placeholder="1-3 tahun"
-                            className="w-full rounded-xl border border-border px-4 py-3 text-sm text-ink outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10"
-                        />
+                            className="w-full rounded-xl border border-border bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10"
+                        >
+                            <option value="" disabled>
+                                Pilih lama usaha
+                            </option>
+                            {getOptions("business_age").map((option) => (
+                                <option key={option.value} value={option.value}>
+                                    {option.label}
+                                </option>
+                            ))}
+                        </select>
                     </div>
 
                     {/* Produk utama */}
@@ -1862,8 +1881,8 @@ const handleAvatarChange = async (event) => {
                                     </p>
 
                                     <p className="mt-2 text-2xl font-bold text-ink-title">
-                                        {financialReadiness.recommended_budge != null
-                                            ? formatRupiah(financialReadiness.recommended_budge)
+                                        {financialReadiness.recommended_budget != null
+                                            ? formatRupiah(financialReadiness.recommended_budget)
                                             : "Belum tersedia"}
                                     </p>
 
@@ -2057,7 +2076,7 @@ const handleAvatarChange = async (event) => {
                                         Digital Skill
                                     </p>
                                     <p className="mt-1 font-semibold text-ink">
-                                        {businessConstraints.digital_skill || "-"}
+                                        {getDigitalSkillLabel(businessConstraints.digital_skill) || "-"}
                                     </p>
                                 </div>
 
