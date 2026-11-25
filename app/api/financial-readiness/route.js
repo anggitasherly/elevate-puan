@@ -1,9 +1,55 @@
 ﻿import { createSupabaseServerClient } from "../../../lib/supabase/server";
 import { calculateFinancialReadiness } from "../../../lib/financial-readiness-engine";
 import { normalizeFinancialPeriod } from "../../../lib/financial-period-normalizer";
+import { determineGrowthLevel } from "../../../lib/growth-level";
 
-const RISK_ALLOWANCE_PCT = 15;
 const MAX_DB_INTEGER = 2147483647;
+
+// Riwayat eksperimen selesai milik satu usaha, dari yang paling lama ke yang
+// paling baru. Dipakai untuk menentukan level pertumbuhan dan risk allowance.
+// Kalau riwayat gagal dibaca, kembalikan daftar kosong (Level 1, 15%) supaya
+// perhitungan tetap tersimpan dengan aturan paling hati-hati.
+async function loadCompletedHistory(supabase, businessId) {
+  const { data: experiments, error: experimentError } = await supabase
+    .from("experiments")
+    .select("id, created_at")
+    .eq("business_id", businessId)
+    .eq("status", "completed")
+    .order("end_date", { ascending: true, nullsFirst: true })
+    .order("created_at", { ascending: true });
+
+  if (experimentError) {
+    console.error("Financial history error:", experimentError.message);
+    return [];
+  }
+
+  if (!experiments || experiments.length === 0) return [];
+
+  const { data: results, error: resultError } = await supabase
+    .from("experiment_results")
+    .select("experiment_id, net_profit, created_at")
+    .in(
+      "experiment_id",
+      experiments.map((item) => item.id)
+    )
+    .order("created_at", { ascending: true });
+
+  if (resultError) {
+    console.error("Financial history result error:", resultError.message);
+    return [];
+  }
+
+  // Ambil hasil terbaru untuk tiap eksperimen.
+  const latestResult = {};
+  for (const row of results ?? []) {
+    latestResult[row.experiment_id] = row;
+  }
+
+  return experiments.map((item) => ({
+    id: item.id,
+    net_profit: latestResult[item.id]?.net_profit ?? null,
+  }));
+}
 
 export async function POST(request) {
   try {
@@ -74,10 +120,23 @@ export async function POST(request) {
       );
     }
 
-    const affordableLoss = Math.round(
-      Math.max(0, normalized.freeSurplus) *
-        (RISK_ALLOWANCE_PCT / 100)
+    // Level pertumbuhan dan risk allowance mengikuti riwayat eksperimen selesai
+    // (aturan lengkap di lib/growth-level.js): Level 1 = 15%, Level 2 = 20%,
+    // Level 3 = 25%.
+    const history = await loadCompletedHistory(
+      supabase,
+      businesses[0].id
     );
+
+    const {
+      growthLevel,
+      riskAllowancePct,
+      safeLimit: affordableLoss,
+    } = determineGrowthLevel({
+      marginFilled: Number.isFinite(normalized.productMarginPct),
+      freeSurplus: normalized.freeSurplus,
+      history,
+    });
 
     const recommendedBudget = Math.min(
       affordableLoss,
@@ -117,13 +176,13 @@ export async function POST(request) {
           household_need: normalized.monthlyHouseholdNeed,
           product_margin_pct: normalized.productMarginPct,
           willingness_to_lose: normalized.experimentBudget,
-          risk_allowance_pct: RISK_ALLOWANCE_PCT,
+          risk_allowance_pct: riskAllowancePct,
           business_profit: normalized.businessProfit,
           free_surplus: normalized.freeSurplus,
           affordable_loss: affordableLoss,
           recommended_budget: recommendedBudget,
           status,
-          growth_level: null,
+          growth_level: growthLevel,
         })
         .select("id, created_at")
         .single();
@@ -145,10 +204,10 @@ export async function POST(request) {
       analysis,
       financialGate: {
         status,
-        riskAllowancePct: RISK_ALLOWANCE_PCT,
+        riskAllowancePct,
         affordableLoss,
         recommendedBudget,
-        growthLevel: null,
+        growthLevel,
       },
       normalized,
       persisted: true,
