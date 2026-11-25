@@ -1,3 +1,8 @@
+import { redirect } from "next/navigation";
+
+// Halaman daftar eksperimen belum ada. Alamat ini dialihkan ke eksperimen aktif
+// (halaman Daily). Kalau belum ada eksperimen aktif, halaman Daily menampilkan
+// ajakan untuk memilih strategi.
 export default function ExperimentsPage() {
-  return <div className="p-6">Halaman experiments</div>;
+  redirect("/experiments/daily");
 }
