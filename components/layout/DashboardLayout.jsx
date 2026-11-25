@@ -69,6 +69,11 @@ const [profileMenuOpen, setProfileMenuOpen] = useState(false);
 const pathname = usePathname();
 const router = useRouter();
 
+// Nama pengguna yang login (dikirim dari app/(app)/layout.js).
+// Kalau kosong, tampil "Pengguna" supaya header tidak kosong.
+const displayName = userName.trim() || "Pengguna";
+const initial = displayName.charAt(0).toUpperCase();
+
 async function handleSignOut() {
   setProfileMenuOpen(false);
   await signOut(router);
