@@ -1,6 +1,8 @@
 import math
 from typing import Any
 
+from app.engines.normalizer import team_category_from_size
+
 SKILL_RANK = {"low": 1, "low_medium": 2, "medium": 3, "high": 4}
 
 
@@ -20,28 +22,34 @@ def check_skill_fit(required_skill: str, user_skill: str) -> dict[str, Any]:
     return {"status": "not_feasible", "reason": "Kesenjangan kemampuan terlalu besar untuk eksperimen ini.", "adaptation": None}
 
 
+# Tingkatan tim. Playbook menuliskan tim paling kecil yang bisa menjalankannya:
+# - "solo"  : bisa dipakai semua kategori (solo, tim kecil, tim besar)
+# - "small" : bisa dipakai tim kecil dan tim besar, tidak untuk solo
+# - "large" : hanya untuk tim besar
+# Kalau satu Playbook menuliskan beberapa kategori, yang paling kecil dipakai.
+TEAM_RANK = {"solo": 1, "small": 2, "large": 3}
+
+
 def check_team_fit(supported_team_sizes: list[str], user_team_category: str | int | None = None, user_team_size: int | None = None) -> dict[str, Any]:
     if not supported_team_sizes:
         return {"status": "needs_review", "reason": "Informasi kebutuhan tim Playbook belum tersedia."}
-    supported = set(supported_team_sizes)
+    required_ranks = [TEAM_RANK[item] for item in supported_team_sizes if item in TEAM_RANK]
+    if not required_ranks:
+        return {"status": "needs_review", "reason": "Informasi kebutuhan tim Playbook belum tersedia."}
+    required_rank = min(required_ranks)
     if isinstance(user_team_category, int) and not isinstance(user_team_category, bool):
         user_team_size, user_team_category = user_team_category, None
-    if user_team_size is None:
-        if user_team_category in supported:
-            return {"status": "feasible", "reason": "Kategori ukuran tim sesuai dengan kebutuhan Playbook."}
+    if user_team_size is not None:
+        if not isinstance(user_team_size, int) or isinstance(user_team_size, bool) or user_team_size < 1:
+            return {"status": "needs_review", "reason": "Jumlah anggota tim tidak valid."}
+        user_team_category = team_category_from_size(user_team_size)
+    user_rank = TEAM_RANK.get(user_team_category)
+    if user_rank is None:
         return {"status": "needs_review", "reason": "Jumlah atau kategori ukuran tim belum dapat dipastikan."}
-    if not isinstance(user_team_size, int) or isinstance(user_team_size, bool) or user_team_size < 1:
-        return {"status": "needs_review", "reason": "Jumlah anggota tim tidak valid."}
-    if {"solo", "small", "large"}.issubset(supported):
-        return {"status": "feasible", "reason": "Playbook mendukung semua kategori ukuran tim."}
-    if user_team_size == 1 and "solo" in supported:
-        return {"status": "feasible", "reason": "Playbook mendukung usaha yang dijalankan sendiri."}
-    if supported == {"solo"}:
-        return {"status": "not_feasible", "reason": "Playbook hanya mendukung usaha yang dijalankan sendiri."}
-    return {
-        "status": "needs_review",
-        "reason": "Kategori ukuran tim belum dapat dipastikan tanpa batas jumlah anggota yang disepakati.",
-    }
+    if user_rank >= required_rank:
+        return {"status": "feasible", "reason": "Ukuran tim sesuai dengan kebutuhan Playbook."}
+    return {"status": "not_feasible", "reason": "Playbook membutuhkan tim yang lebih besar dari tim yang tersedia."}
+
 
 def check_time_fit(
     required_hours: float | None,

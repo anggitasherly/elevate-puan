@@ -49,7 +49,7 @@ def test_normalize_constraints():
 
     assert result["hours_per_week"] == 10
     assert result["skill_level"] == "low"
-    assert result["team_size_category"] == "unknown"
+    assert result["team_size_category"] == "small"
 
 
 def test_normalize_business_stage():

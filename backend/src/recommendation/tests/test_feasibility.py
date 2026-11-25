@@ -1,4 +1,5 @@
 
+from app.engines.normalizer import team_category_from_size
 from app.engines.feasibility import (
     check_skill_fit,
     check_team_fit,
@@ -117,22 +118,66 @@ def test_team_fit_solo_only_with_one_member():
     assert result["status"] == "feasible"
 
 
-def test_team_fit_solo_only_with_multiple_members():
+def test_team_fit_solo_playbook_usable_by_small_team():
     result = check_team_fit(
         ["solo"],
         user_team_size=3,
     )
 
-    assert result["status"] == "not_feasible"
+    assert result["status"] == "feasible"
 
 
-def test_team_fit_small_large_without_defined_threshold():
+def test_team_fit_solo_playbook_usable_by_large_team():
+    result = check_team_fit(
+        ["solo"],
+        user_team_size=8,
+    )
+
+    assert result["status"] == "feasible"
+
+
+def test_team_fit_small_playbook_usable_by_small_team():
     result = check_team_fit(
         ["small", "large"],
         user_team_size=3,
     )
 
-    assert result["status"] == "needs_review"
+    assert result["status"] == "feasible"
+
+
+def test_team_fit_small_playbook_not_for_solo():
+    result = check_team_fit(
+        ["small", "large"],
+        user_team_size=1,
+    )
+
+    assert result["status"] == "not_feasible"
+
+
+def test_team_fit_large_only_not_for_small_team():
+    result = check_team_fit(
+        ["large"],
+        user_team_size=5,
+    )
+
+    assert result["status"] == "not_feasible"
+
+
+def test_team_fit_large_only_for_large_team():
+    result = check_team_fit(
+        ["large"],
+        user_team_size=6,
+    )
+
+    assert result["status"] == "feasible"
+
+
+def test_team_fit_boundaries_between_categories():
+    assert team_category_from_size(1) == "solo"
+    assert team_category_from_size(2) == "small"
+    assert team_category_from_size(5) == "small"
+    assert team_category_from_size(6) == "large"
+    assert team_category_from_size(0) == "unknown"
 
 
 def test_team_fit_solo_small_with_multiple_members():
@@ -141,7 +186,7 @@ def test_team_fit_solo_small_with_multiple_members():
         user_team_size=3,
     )
 
-    assert result["status"] == "needs_review"
+    assert result["status"] == "feasible"
 
 
 def test_team_fit_invalid_team_size():

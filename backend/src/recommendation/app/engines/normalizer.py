@@ -45,6 +45,22 @@ def normalize_skill(value: Any) -> str:
     return "unknown"
 
 
+# Batas kategori tim (keputusan tim):
+# solo = 1 orang, tim kecil = 2 sampai 5 orang, tim besar = lebih dari 5 orang.
+SMALL_TEAM_MAX_SIZE = 5
+
+
+def team_category_from_size(size: int | None) -> str:
+    """Ubah jumlah anggota tim menjadi kategori: solo, small, large, atau unknown."""
+    if not isinstance(size, int) or isinstance(size, bool) or size < 1:
+        return "unknown"
+    if size == 1:
+        return "solo"
+    if size <= SMALL_TEAM_MAX_SIZE:
+        return "small"
+    return "large"
+
+
 def normalize_team_size(value: Any) -> list[str]:
     if value is None:
         return []
@@ -289,12 +305,10 @@ def normalize_constraints(constraints: dict) -> dict:
         else:
             team_size_status = "invalid"
 
-    # Feasibility currently only has a confirmed category for solo.
-    # Do not invent thresholds for small and large teams.
+    # Kategori tim memakai batas yang sudah disepakati:
+    # solo = 1, small = 2 sampai 5, large = lebih dari 5.
     normalized["team_size"] = team_size
-    normalized["team_size_category"] = (
-        "solo" if team_size == 1 else "unknown"
-    )
+    normalized["team_size_category"] = team_category_from_size(team_size)
     normalized["team_size_status"] = team_size_status
 
     # 4. Normalize available experiment hours.
